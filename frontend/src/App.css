@@ -20,10 +20,10 @@ body {
 }
 
 /* Header */
-.header {
+.App-header {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  padding: 16px 24px;
+  padding: 20px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -31,20 +31,9 @@ body {
   z-index: 1000;
 }
 
-.header-left h1 {
+.App-header h1 {
   font-size: 24px;
-  margin-bottom: 4px;
-}
-
-.subtitle {
-  font-size: 14px;
-  opacity: 0.9;
-}
-
-.header-right {
-  display: flex;
-  gap: 24px;
-  align-items: center;
+  margin: 0;
 }
 
 .connection-status {
@@ -55,54 +44,22 @@ body {
   border-radius: 20px;
   font-size: 14px;
   font-weight: 600;
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.connection-status.connected {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-}
-
-.connection-status.disconnected {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-.status-dot {
+.status-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: currentColor;
-  animation: pulse 2s infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+.connected {
+  color: #10b981;
 }
 
-.stats {
-  display: flex;
-  gap: 20px;
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat-label {
-  display: block;
-  font-size: 11px;
-  opacity: 0.9;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.stat-value {
-  display: block;
-  font-size: 28px;
-  font-weight: bold;
-  line-height: 1;
-  margin-top: 4px;
+.disconnected {
+  color: #ef4444;
 }
 
 /* Main Container */
@@ -113,15 +70,17 @@ body {
 }
 
 .sidebar {
-  width: 320px;
+  width: 350px;
   background: white;
-  border-right: 1px solid #e5e7eb;
   overflow-y: auto;
   box-shadow: 2px 0 8px rgba(0,0,0,0.05);
 }
 
-.sidebar-right {
-  border-right: none;
+.sidebar.left {
+  border-right: 1px solid #e5e7eb;
+}
+
+.sidebar.right {
   border-left: 1px solid #e5e7eb;
   box-shadow: -2px 0 8px rgba(0,0,0,0.05);
 }
@@ -130,80 +89,6 @@ body {
   flex: 1;
   position: relative;
   background: #e5e7eb;
-}
-
-/* Map Overlay */
-.map-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
-
-.warning-banner-large {
-  background: white;
-  padding: 32px;
-  border-radius: 16px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-  text-align: center;
-  max-width: 500px;
-}
-
-.warning-banner-large h3 {
-  margin: 0 0 12px 0;
-  font-size: 24px;
-  color: #ef4444;
-}
-
-.warning-banner-large p {
-  margin: 0 0 16px 0;
-  color: #6b7280;
-  font-size: 16px;
-}
-
-.warning-banner-large code {
-  display: block;
-  background: #f3f4f6;
-  padding: 12px;
-  border-radius: 8px;
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
-  color: #1f2937;
-  border: 1px solid #e5e7eb;
-}
-
-/* Empty State */
-.empty-state {
-  padding: 32px;
-  text-align: center;
-  color: #6b7280;
-}
-
-.empty-state p {
-  margin: 8px 0;
-}
-
-/* Drone Marker Animation */
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.1);
-  }
-}
-
-.drone-marker {
-  background: transparent !important;
-  border: none !important;
 }
 
 /* Scrollbar Styling */

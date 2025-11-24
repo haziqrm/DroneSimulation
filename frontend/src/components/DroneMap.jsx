@@ -1,126 +1,281 @@
-import React from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle } from 'react-leaflet';
+import React, { useEffect, useRef, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
+import SockJS from 'sockjs-client';
+import { Stomp } from '@stomp/stompjs';
 import 'leaflet/dist/leaflet.css';
+import './DroneMap.css';
 
-// Fix Leaflet default marker icon issue
+// Fix Leaflet default icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
-  iconUrl: require('leaflet/dist/images/marker-icon.png'),
-  shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const DroneMap = ({ activeDrones = [], selectedDroneId = null }) => {
-  const center = [55.9445, -3.1892]; // Edinburgh city center
-  const baseStation = [55.9445, -3.1892];
+// Custom drone icon
+const createDroneIcon = (color) => {
+  return L.divIcon({
+    className: 'custom-drone-icon',
+    html: `
+      <div style="
+        background: ${color};
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+      ">
+        🚁
+      </div>
+    `,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+};
 
-  // Status to icon mapping
-  const statusIcons = {
-    DEPLOYING: '🚀',
-    FLYING: '✈️',
-    DELIVERING: '📦',
-    RETURNING: '🔙',
-    COMPLETED: '✅'
+const DroneMap = ({ selectedDroneId }) => {
+  const [activeDrones, setActiveDrones] = useState({});
+  const [droneColors] = useState({});
+  const stompClientRef = useRef(null);
+  const mapRef = useRef(null);
+  
+  // Edinburgh coordinates
+  const edinburghCenter = [55.9445, -3.1892];
+  const defaultZoom = 13;
+
+  // Generate consistent color for each drone
+  const getDroneColor = (droneId) => {
+    if (!droneColors[droneId]) {
+      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+      droneColors[droneId] = colors[Object.keys(droneColors).length % colors.length];
+    }
+    return droneColors[droneId];
   };
 
-  // Drone colors (cycle through for multiple drones)
-  const droneColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+  useEffect(() => {
+    console.log('🔌 Connecting to STOMP WebSocket...');
+    
+    // Create SockJS connection
+    const socket = new SockJS('http://localhost:8080/ws');
+    const stompClient = Stomp.over(socket);
+    stompClientRef.current = stompClient;
 
-  const createCustomIcon = (emoji, color) => {
-    return L.divIcon({
-      html: `<div style="font-size: 24px; text-shadow: 0 0 3px white;">${emoji}</div>`,
-      className: 'custom-icon',
-      iconSize: [30, 30],
-      iconAnchor: [15, 15]
+    // Connect to WebSocket
+    stompClient.connect({}, 
+      (frame) => {
+        console.log('✅ STOMP Connected:', frame);
+        
+        // Subscribe to drone updates
+        stompClient.subscribe('/topic/drones', (message) => {
+          try {
+            const data = JSON.parse(message.body);
+            console.log('📥 Drone update received:', data);
+            
+            if (data.type === 'DRONE_POSITION_UPDATE') {
+              setActiveDrones(prev => {
+                const updated = {
+                  ...prev,
+                  [data.droneId]: {
+                    ...prev[data.droneId],
+                    droneId: data.droneId,
+                    currentPosition: data.position,
+                    progress: data.progress,
+                    status: data.status,
+                    delivery: data.delivery,
+                    flightPath: data.flightPath || prev[data.droneId]?.flightPath || []
+                  }
+                };
+                console.log('📊 Updated drones:', Object.keys(updated).length);
+                return updated;
+              });
+            } else if (data.type === 'DRONE_MISSION_COMPLETE') {
+              console.log('✅ Mission completed:', data.droneId);
+              setTimeout(() => {
+                setActiveDrones(prev => {
+                  const updated = { ...prev };
+                  delete updated[data.droneId];
+                  return updated;
+                });
+              }, 3000);
+            }
+          } catch (error) {
+            console.error('❌ Error processing drone update:', error);
+          }
+        });
+
+        // Subscribe to delivery status (optional)
+        stompClient.subscribe('/topic/deliveries', (message) => {
+          console.log('📦 Delivery status:', message.body);
+        });
+
+        // Subscribe to system state (optional)
+        stompClient.subscribe('/topic/system', (message) => {
+          console.log('🖥️ System state:', message.body);
+        });
+      },
+      (error) => {
+        console.error('❌ STOMP connection error:', error);
+      }
+    );
+
+    // Cleanup on unmount
+    return () => {
+      console.log('🧹 Disconnecting STOMP...');
+      if (stompClient.connected) {
+        stompClient.disconnect();
+      }
+    };
+  }, []);
+
+  // Debug: Log active drones
+  useEffect(() => {
+    console.log('🗺️ DroneMap: Active drones updated:', Object.keys(activeDrones).length);
+    Object.entries(activeDrones).forEach(([id, drone]) => {
+      console.log(`  Drone ${id}:`, {
+        position: drone.currentPosition,
+        delivery: drone.delivery?.orderId,
+        pathLength: drone.flightPath?.length || 0
+      });
     });
-  };
+  }, [activeDrones]);
 
   return (
-    <MapContainer 
-      center={center} 
-      zoom={14} 
-      style={{ height: '100%', width: '100%' }}
-      scrollWheelZoom={true}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-
-      {/* Base station marker */}
-      <Marker 
-        position={baseStation}
-        icon={createCustomIcon('🏥', '#000000')}
+    <div className="drone-map">
+      <MapContainer
+        center={edinburghCenter}
+        zoom={defaultZoom}
+        style={{ height: '100%', width: '100%' }}
+        ref={mapRef}
       >
-        <Popup>
-          <strong>🏥 Base Station</strong><br />
-          Edinburgh Medical Drone Hub
-        </Popup>
-      </Marker>
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
 
-      {/* Active drones */}
-      {activeDrones && activeDrones.length > 0 && activeDrones.map((drone, index) => {
-        const droneColor = droneColors[index % droneColors.length];
-        const icon = statusIcons[drone.status] || '🚁';
-        const position = [drone.latitude, drone.longitude];
+        {/* Render each active drone */}
+        {Object.entries(activeDrones).map(([droneId, droneData]) => {
+          const color = getDroneColor(droneId);
+          const isSelected = droneId === selectedDroneId;
+          
+          // Current position
+          const position = droneData.currentPosition;
+          if (!position || !position.latitude || !position.longitude) {
+            console.warn(`Drone ${droneId} has invalid position:`, position);
+            return null;
+          }
 
-        return (
-          <React.Fragment key={drone.droneId}>
-            {/* Drone marker */}
-            <Marker
-              position={position}
-              icon={createCustomIcon(icon, droneColor)}
-            >
-              <Popup>
-                <div style={{ minWidth: '200px' }}>
-                  <strong>{icon} Drone {drone.droneId}</strong><br />
-                  <strong>Status:</strong> {drone.status}<br />
-                  <strong>Delivery:</strong> #{drone.deliveryId}<br />
-                  <strong>Progress:</strong> {(drone.progress * 100).toFixed(0)}%<br />
-                  <strong>Capacity:</strong> {drone.capacityUsed?.toFixed(1) || 0} / {drone.totalCapacity?.toFixed(1) || 0} kg<br />
-                  <strong>Location:</strong> {drone.latitude?.toFixed(4)}, {drone.longitude?.toFixed(4)}
-                </div>
-              </Popup>
-            </Marker>
+          return (
+            <React.Fragment key={droneId}>
+              {/* Drone marker */}
+              <Marker
+                position={[position.latitude, position.longitude]}
+                icon={createDroneIcon(isSelected ? '#ef4444' : color)}
+              >
+                <Popup>
+                  <div style={{ minWidth: '200px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontWeight: 600 }}>
+                      🚁 {droneId}
+                    </h4>
+                    <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
+                      <div><strong>Position:</strong></div>
+                      <div style={{ fontFamily: 'monospace', fontSize: '11px', marginBottom: '8px' }}>
+                        {position.latitude.toFixed(6)}, {position.longitude.toFixed(6)}
+                      </div>
+                      
+                      {droneData.delivery && (
+                        <>
+                          <div><strong>Delivery:</strong> {droneData.delivery.orderId}</div>
+                          <div><strong>To:</strong> {droneData.delivery.destination?.name || 'Unknown'}</div>
+                          <div><strong>Progress:</strong> {droneData.progress || 0}%</div>
+                        </>
+                      )}
+                      
+                      {droneData.status && (
+                        <div style={{ 
+                          marginTop: '8px', 
+                          padding: '4px 8px', 
+                          background: '#f0f4ff',
+                          borderRadius: '4px',
+                          fontSize: '12px'
+                        }}>
+                          {droneData.status}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
 
-            {/* Highlight selected drone */}
-            {selectedDroneId === drone.droneId && (
-              <Circle
-                center={position}
-                radius={100}
-                pathOptions={{
-                  color: droneColor,
-                  fillColor: droneColor,
-                  fillOpacity: 0.2
-                }}
-              />
-            )}
-          </React.Fragment>
-        );
-      })}
+              {/* Flight path */}
+              {droneData.flightPath && droneData.flightPath.length > 1 && (
+                <Polyline
+                  positions={droneData.flightPath.map(pos => [pos.latitude, pos.longitude])}
+                  color={isSelected ? '#ef4444' : color}
+                  weight={3}
+                  opacity={0.7}
+                  dashArray={isSelected ? '10, 5' : undefined}
+                />
+              )}
 
-      {/* Legend */}
-      <div style={{
-        position: 'absolute',
-        bottom: '20px',
-        right: '20px',
-        background: 'white',
-        padding: '10px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        zIndex: 1000,
-        fontSize: '12px'
-      }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>Legend</div>
-        <div>🏥 Base Station</div>
-        <div>🚀 Deploying</div>
-        <div>✈️ Flying</div>
-        <div>📦 Delivering</div>
-        <div>🔙 Returning</div>
-        <div>✅ Completed</div>
-      </div>
-    </MapContainer>
+              {/* Destination marker (if delivery exists) */}
+              {droneData.delivery && droneData.delivery.destination && (
+                <Marker
+                  position={[
+                    droneData.delivery.destination.latitude,
+                    droneData.delivery.destination.longitude
+                  ]}
+                  icon={L.divIcon({
+                    className: 'destination-marker',
+                    html: `
+                      <div style="
+                        background: ${color};
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 50%;
+                        border: 2px solid white;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 12px;
+                      ">
+                        📍
+                      </div>
+                    `,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                  })}
+                >
+                  <Popup>
+                    <div>
+                      <h4 style={{ margin: '0 0 4px 0' }}>Destination</h4>
+                      <div>{droneData.delivery.destination.name}</div>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </MapContainer>
+
+      {/* Debug overlay */}
+      {Object.keys(activeDrones).length === 0 && (
+        <div className="map-overlay">
+          <div className="map-message">
+            <div className="map-icon">🗺️</div>
+            <h3>No Active Drones</h3>
+            <p>Dispatch a delivery to see drones on the map</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

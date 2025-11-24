@@ -81,11 +81,11 @@ function App() {
     console.log('App mounted - fetching initial data...');
     fetchAvailableDrones();
     
-    // Also get system status
+    // Log system status for debugging (don't use availableDrones from it)
     getSystemStatus()
       .then(status => {
         console.log('Initial system status:', status);
-        setAvailableDronesCount(status.availableDrones || 0);
+        // Don't set availableDronesCount here - systemStatus doesn't return that field!
       })
       .catch(error => {
         console.error('Error fetching system status:', error);
