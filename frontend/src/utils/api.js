@@ -1,18 +1,64 @@
-import axios from 'axios';
-
 const API_BASE = 'http://localhost:8080/api/v1';
 
-export async function startSimulation(dispatches) {
-  const response = await axios.post(`${API_BASE}/startSimulation`, dispatches);
-  return response.data;
-}
+export const submitDelivery = async (deliveryData) => {
+  const response = await fetch(`${API_BASE}/submitDelivery`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(deliveryData),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+};
 
-export async function calcDeliveryPath(dispatches) {
-  const response = await axios.post(`${API_BASE}/calcDeliveryPath`, dispatches);
-  return response.data;
-}
+export const getSystemStatus = async () => {
+  const response = await fetch(`${API_BASE}/systemStatus`);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+};
 
-export async function getDronesWithCooling(hasCooling) {
-  const response = await axios.get(`${API_BASE}/dronesWithCooling/${hasCooling}`);
-  return response.data;
-}
+export const getAvailableDrones = async () => {
+  const response = await fetch(`${API_BASE}/availableDrones`);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+};
+
+// Legacy endpoint - kept for backwards compatibility
+export const calcDeliveryPath = async (dispatches) => {
+  const response = await fetch(`${API_BASE}/calcDeliveryPath`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(dispatches),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+};
+
+export const getDronesWithCooling = async (hasCooling) => {
+  const response = await fetch(`${API_BASE}/dronesWithCooling/${hasCooling}`);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+};

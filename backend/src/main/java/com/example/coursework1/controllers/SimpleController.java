@@ -3,6 +3,8 @@ package com.example.coursework1.controllers;
 import com.example.coursework1.dto.*;
 import com.example.coursework1.model.Position;
 import com.example.coursework1.service.*;
+import com.example.coursework1.service.DroneDispatchService.DeliveryRequest;
+import com.example.coursework1.service.DroneDispatchService.DeliverySubmissionResult;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +26,9 @@ public class SimpleController {
     private final DeliveryPlannerService deliveryPlannerService;
     private final DroneAvailabilityService droneAvailabilityService;
     private final GeoJsonService geoJsonService;
+
+    @Autowired
+    private DroneDispatchService droneDispatchService;
 
     public SimpleController(DistanceService distanceService,
                             NavigationService navigationService,
@@ -125,24 +130,64 @@ public class SimpleController {
         return ResponseEntity.ok(geoJson);
     }
 
-    @Autowired
-    private DroneSimulationService droneSimulationService;
+    // ========== NEW REAL-TIME DISPATCH ENDPOINTS ==========
 
-    @PostMapping("/startSimulation")
-    public ResponseEntity<Map<String, String>> startSimulation(
-            @RequestBody List<MedDispatchRec> dispatches) {
+    /**
+     * Submit a single delivery request - drone will be dispatched immediately
+     */
+    @PostMapping("/submitDelivery")
+    public ResponseEntity<DeliverySubmissionResult> submitDelivery(
+            @RequestBody DeliveryRequest request) {
 
-        String simulationId = UUID.randomUUID().toString();
+        logger.info("📦 Received delivery submission: lat={}, lng={}, capacity={}, cooling={}, heating={}",
+                request.getLatitude(), request.getLongitude(), request.getCapacity(),
+                request.isCooling(), request.isHeating());
 
-        logger.info("Starting simulation {} with {} dispatches",
-                simulationId, dispatches.size());
+        DeliverySubmissionResult result = droneDispatchService.submitDelivery(request);
 
-        droneSimulationService.startSimulation(simulationId, dispatches);
+        return ResponseEntity.ok(result);
+    }
 
-        return ResponseEntity.ok(Map.of(
-                "simulationId", simulationId,
-                "status", "started",
-                "dispatchCount", String.valueOf(dispatches.size())
-        ));
+    /**
+     * Get current system status
+     */
+    @GetMapping("/systemStatus")
+    public ResponseEntity<Map<String, Object>> getSystemStatus() {
+        Map<String, Object> status = Map.of(
+                "activeDrones", droneDispatchService.getActiveDrones().size(),
+                "totalDrones", droneService.fetchAllDrones().size(),
+                "activeMissions", droneDispatchService.getActiveDrones().values().stream()
+                        .map(state -> Map.of(
+                                "droneId", state.getDroneId(),
+                                "deliveryId", state.getDeliveryId(),
+                                "status", state.getStatus(),
+                                "progress", (double) state.getStepIndex() / state.getFlightPath().size()
+                        ))
+                        .toList()
+        );
+
+        return ResponseEntity.ok(status);
+    }
+
+    /**
+     * Get list of available drones
+     */
+    @GetMapping("/availableDrones")
+    public ResponseEntity<List<Map<String, Object>>> getAvailableDrones() {
+        List<Drone> allDrones = droneService.fetchAllDrones();
+        Map<String, ?> activeDroneIds = droneDispatchService.getActiveDrones();
+
+        List<Map<String, Object>> available = allDrones.stream()
+                .filter(d -> !activeDroneIds.containsKey(d.getId()))
+                .map(d -> Map.of(
+                        "id", (Object) d.getId(),
+                        "name", d.getName() != null ? d.getName() : "Unnamed",
+                        "capacity", d.getCapability() != null ? d.getCapability().getCapacity() : 0.0,
+                        "cooling", d.getCapability() != null && d.getCapability().isCooling(),
+                        "heating", d.getCapability() != null && d.getCapability().isHeating()
+                ))
+                .toList();
+
+        return ResponseEntity.ok(available);
     }
 }
