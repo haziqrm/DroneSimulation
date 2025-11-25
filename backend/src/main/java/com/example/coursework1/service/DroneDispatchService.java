@@ -248,7 +248,7 @@ public class DroneDispatchService {
                 // Broadcast position update
                 broadcastDroneUpdate(state);
 
-                Thread.sleep(300); // 300ms per step for smooth animation
+                Thread.sleep(100); // 300ms per step for smooth animation
             }
 
             // Mission complete

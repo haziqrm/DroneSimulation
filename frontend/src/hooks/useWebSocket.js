@@ -2,15 +2,18 @@ import { useEffect, useState, useRef } from 'react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
 
-export function useWebSocket({ onDroneUpdate, onSystemState, onDeliveryStatus }) {
+export function useWebSocket(onDroneUpdate, onSystemState, onDeliveryStatus) {
   const [connected, setConnected] = useState(false);
   const clientRef = useRef(null);
 
   useEffect(() => {
+    console.log('🔌 Initializing WebSocket connection...');
+    
     const socket = new SockJS('http://localhost:8080/ws');
     const stompClient = new Client({
       webSocketFactory: () => socket,
       debug: (str) => {
+        // Uncomment for detailed STOMP debugging
         // console.log('STOMP:', str);
       },
       
@@ -20,20 +23,35 @@ export function useWebSocket({ onDroneUpdate, onSystemState, onDeliveryStatus })
 
         // Subscribe to drone position updates
         stompClient.subscribe('/topic/drone-updates', (message) => {
-          const update = JSON.parse(message.body);
-          onDroneUpdate(update);
+          try {
+            const update = JSON.parse(message.body);
+            console.log('📥 Drone update received:', update);
+            onDroneUpdate(update);
+          } catch (error) {
+            console.error('Error parsing drone update:', error);
+          }
         });
 
         // Subscribe to system state updates
         stompClient.subscribe('/topic/system-state', (message) => {
-          const state = JSON.parse(message.body);
-          onSystemState(state);
+          try {
+            const state = JSON.parse(message.body);
+            console.log('🖥️ System state received:', state);
+            onSystemState(state);
+          } catch (error) {
+            console.error('Error parsing system state:', error);
+          }
         });
 
         // Subscribe to delivery status updates
         stompClient.subscribe('/topic/delivery-status', (message) => {
-          const status = JSON.parse(message.body);
-          onDeliveryStatus(status);
+          try {
+            const status = JSON.parse(message.body);
+            console.log('📦 Delivery status received:', status);
+            onDeliveryStatus(status);
+          } catch (error) {
+            console.error('Error parsing delivery status:', error);
+          }
         });
       },
 
@@ -43,7 +61,7 @@ export function useWebSocket({ onDroneUpdate, onSystemState, onDeliveryStatus })
       },
 
       onStompError: (frame) => {
-        console.error('STOMP error:', frame);
+        console.error('❌ STOMP error:', frame);
         setConnected(false);
       }
     });
@@ -52,6 +70,7 @@ export function useWebSocket({ onDroneUpdate, onSystemState, onDeliveryStatus })
     clientRef.current = stompClient;
 
     return () => {
+      console.log('🧹 Cleaning up WebSocket connection');
       if (clientRef.current) {
         clientRef.current.deactivate();
       }

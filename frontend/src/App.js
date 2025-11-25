@@ -3,104 +3,90 @@ import './App.css';
 import DeliveryForm from './components/DeliveryForm';
 import DroneMap from './components/DroneMap';
 import DroneList from './components/DroneList';
-import ActiveDeliveries from './components/ActiveDeliveries';
 import { useWebSocket } from './hooks/useWebSocket';
-import { getSystemStatus, getAvailableDrones } from './utils/api';
+import { getAvailableDrones } from './utils/api';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 function App() {
-  const [activeDrones, setActiveDrones] = useState([]);
-  const [activeDeliveries, setActiveDeliveries] = useState([]);
+  const [activeDrones, setActiveDrones] = useState({});
   const [selectedDroneId, setSelectedDroneId] = useState(null);
   const [availableDronesCount, setAvailableDronesCount] = useState(0);
 
   // WebSocket callbacks
-  const onDroneUpdate = (update) => {
-    console.log('Drone update received:', update);
+  const handleDroneUpdate = (update) => {
+    console.log('📥 Drone update:', update);
     
-    setActiveDrones(prev => {
-      const existing = prev.find(d => d.droneId === update.droneId);
-      if (existing) {
-        return prev.map(d => d.droneId === update.droneId ? update : d);
+    setActiveDrones(prev => ({
+      ...prev,
+      [update.droneId]: {
+        droneId: update.droneId,
+        deliveryId: update.deliveryId,
+        currentPosition: {
+          latitude: update.latitude,
+          longitude: update.longitude
+        },
+        status: update.status,
+        progress: update.progress,
+        capacityUsed: update.capacityUsed,
+        totalCapacity: update.totalCapacity
       }
-      return [...prev, update];
-    });
-
-    setActiveDeliveries(prev => {
-      const existing = prev.find(d => d.deliveryId === update.deliveryId);
-      if (existing) {
-        return prev.map(d => d.deliveryId === update.deliveryId ? update : d);
-      }
-      return [...prev, update];
-    });
+    }));
   };
 
-  const onSystemState = (state) => {
-    console.log('System state update:', state);
-    setAvailableDronesCount(state.availableDrones || 0);
+  const handleSystemState = (state) => {
+    console.log('🖥️ System state:', state);
+    if (state.availableDrones !== undefined) {
+      setAvailableDronesCount(state.availableDrones);
+    }
   };
 
-  const onDeliveryStatus = (status) => {
-    console.log('Delivery status update:', status);
+  const handleDeliveryStatus = (status) => {
+    console.log('📦 Delivery status:', status);
     
     if (status.status === 'COMPLETED') {
-      toast.success(`✅ Delivery ${status.deliveryId} completed!`, {
-        position: "top-right",
-        autoClose: 5000
-      });
-      setActiveDrones(prev => prev.filter(d => d.deliveryId !== status.deliveryId));
-      setActiveDeliveries(prev => prev.filter(d => d.deliveryId !== status.deliveryId));
+      toast.success(`✅ Delivery ${status.deliveryId} completed!`);
       
-      // Refresh available count
+      // Remove completed drone after delay
+      setTimeout(() => {
+        setActiveDrones(prev => {
+          const updated = { ...prev };
+          delete updated[status.droneId];
+          return updated;
+        });
+      }, 3000);
+      
       fetchAvailableDrones();
     } else if (status.status === 'FAILED') {
-      toast.error(`❌ Delivery ${status.deliveryId} failed: ${status.message}`, {
-        position: "top-right",
-        autoClose: 5000
-      });
+      toast.error(`❌ Delivery ${status.deliveryId} failed: ${status.message}`);
     }
   };
 
   // Connect to WebSocket
-  const { connected } = useWebSocket(onDroneUpdate, onSystemState, onDeliveryStatus);
+  const { connected } = useWebSocket(
+    handleDroneUpdate,
+    handleSystemState,
+    handleDeliveryStatus
+  );
 
-  // Fetch available drones count
+  // Fetch available drones
   const fetchAvailableDrones = async () => {
     try {
       const drones = await getAvailableDrones();
-      console.log('Available drones fetched:', drones.length);
       setAvailableDronesCount(drones.length);
     } catch (error) {
       console.error('Error fetching available drones:', error);
     }
   };
 
-  // Fetch initial data on mount
+  // Initial fetch
   useEffect(() => {
-    console.log('App mounted - fetching initial data...');
     fetchAvailableDrones();
-    
-    // Log system status for debugging (don't use availableDrones from it)
-    getSystemStatus()
-      .then(status => {
-        console.log('Initial system status:', status);
-        // Don't set availableDronesCount here - systemStatus doesn't return that field!
-      })
-      .catch(error => {
-        console.error('Error fetching system status:', error);
-      });
-  }, []);
-
-  // Poll available drones every 5 seconds
-  useEffect(() => {
     const interval = setInterval(fetchAvailableDrones, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleDeliverySubmitted = (result) => {
-    console.log('Delivery submitted:', result);
-    // Refresh available count immediately
+  const handleDeliverySubmitted = () => {
     fetchAvailableDrones();
   };
 
@@ -108,8 +94,8 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>🚁 Drone Dispatch System</h1>
-        <div className="connection-status">
-          <span className={`status-indicator ${connected ? 'connected' : 'disconnected'}`}></span>
+        <div className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
+          <span className="status-indicator"></span>
           <span>{connected ? 'Connected' : 'Disconnected'}</span>
         </div>
       </header>
@@ -131,17 +117,14 @@ function App() {
 
         <aside className="sidebar right">
           <DroneList 
-            drones={activeDrones}
+            drones={Object.values(activeDrones)}
             selectedDroneId={selectedDroneId}
             onDroneSelect={setSelectedDroneId}
-          />
-          <ActiveDeliveries 
-            deliveries={activeDeliveries}
           />
         </aside>
       </div>
 
-      <ToastContainer />
+      <ToastContainer position="top-right" autoClose={5000} />
     </div>
   );
 }

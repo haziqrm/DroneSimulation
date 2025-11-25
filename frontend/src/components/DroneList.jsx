@@ -1,7 +1,7 @@
 import React from 'react';
 import './DroneList.css';
 
-const DroneList = ({ drones = [], selectedDroneId = null, onDroneSelect }) => {
+const DroneList = ({ drones = [], selectedDroneId, onDroneSelect }) => {
   const statusConfig = {
     DEPLOYING: { emoji: '🚀', color: '#3b82f6' },
     FLYING: { emoji: '✈️', color: '#3b82f6' },
@@ -10,7 +10,7 @@ const DroneList = ({ drones = [], selectedDroneId = null, onDroneSelect }) => {
     COMPLETED: { emoji: '✅', color: '#6b7280' }
   };
 
-  if (!drones || drones.length === 0) {
+  if (drones.length === 0) {
     return (
       <div className="drone-list">
         <h3>🚁 Active Drones</h3>
@@ -58,14 +58,18 @@ const DroneList = ({ drones = [], selectedDroneId = null, onDroneSelect }) => {
                 </div>
                 <div className="info-row">
                   <span className="info-label">Progress:</span>
-                  <span className="info-value">{((drone.progress || 0) * 100).toFixed(0)}%</span>
-                </div>
-                <div className="info-row">
-                  <span className="info-label">Capacity:</span>
                   <span className="info-value">
-                    {(drone.capacityUsed || 0).toFixed(1)} / {(drone.totalCapacity || 0).toFixed(1)} kg
+                    {((drone.progress || 0) * 100).toFixed(0)}%
                   </span>
                 </div>
+                {drone.capacityUsed !== undefined && (
+                  <div className="info-row">
+                    <span className="info-label">Capacity:</span>
+                    <span className="info-value">
+                      {drone.capacityUsed.toFixed(1)} / {drone.totalCapacity.toFixed(1)} kg
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="progress-bar-mini">

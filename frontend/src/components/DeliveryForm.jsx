@@ -4,8 +4,8 @@ import { submitDelivery } from '../utils/api';
 import { toast } from 'react-toastify';
 
 const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
-  const [latitude, setLatitude] = useState(55.9213);
-  const [longitude, setLongitude] = useState(-3.1363);
+  const [latitude, setLatitude] = useState(55.9445);
+  const [longitude, setLongitude] = useState(-3.1892);
   const [capacity, setCapacity] = useState(2.0);
   const [cooling, setCooling] = useState(false);
   const [heating, setHeating] = useState(false);
@@ -15,7 +15,7 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
     { name: '🏥 Royal Infirmary', lat: 55.9213, lng: -3.1363 },
     { name: '🏛️ University', lat: 55.9445, lng: -3.1892 },
     { name: '🏰 Castle', lat: 55.9486, lng: -3.1999 },
-    { name: '🌳 Princes St Gardens', lat: 55.9507, lng: -3.2055 }
+    { name: '🌳 Princes St', lat: 55.9507, lng: -3.2055 }
   ];
 
   const handlePresetClick = (preset) => {
@@ -27,7 +27,7 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
     e.preventDefault();
     
     if (availableDrones === 0) {
-      toast.error('No drones available!');
+      toast.error('❌ No drones available!');
       return;
     }
 
@@ -42,10 +42,10 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
         heating
       };
 
-      console.log('Submitting delivery:', deliveryData);
+      console.log('📦 Submitting delivery:', deliveryData);
       const result = await submitDelivery(deliveryData);
       
-      console.log('Delivery result:', result);
+      console.log('✅ Delivery result:', result);
 
       if (result.success) {
         toast.success(`✅ Drone ${result.droneId} dispatched!`);
@@ -56,8 +56,8 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
         toast.error(`❌ ${result.message}`);
       }
     } catch (error) {
-      console.error('Error submitting delivery:', error);
-      toast.error(`❌ Failed to submit delivery: ${error.message}`);
+      console.error('❌ Error submitting delivery:', error);
+      toast.error(`❌ Failed: ${error.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -67,20 +67,18 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
     <div className="delivery-form">
       <h2>📦 New Delivery</h2>
       
-      <div className="available-badge" style={{
-        backgroundColor: availableDrones > 0 ? '#10b981' : '#ef4444',
-        color: 'white',
-        padding: '8px 16px',
-        borderRadius: '20px',
-        textAlign: 'center',
-        marginBottom: '20px',
-        fontWeight: 'bold'
-      }}>
+      <div 
+        className="available-badge" 
+        style={{
+          backgroundColor: availableDrones > 0 ? '#10b981' : '#ef4444',
+          color: 'white'
+        }}
+      >
         Available: {availableDrones}
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className="preset-buttons">
+        <div className="form-section">
           <h4>Quick Locations</h4>
           <div className="preset-grid">
             {presetLocations.map((preset, index) => (
@@ -176,14 +174,7 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
         </button>
 
         {availableDrones === 0 && (
-          <div style={{
-            marginTop: '10px',
-            padding: '10px',
-            background: '#fee',
-            borderRadius: '4px',
-            fontSize: '14px',
-            color: '#c00'
-          }}>
+          <div className="warning-message">
             ⚠️ All drones are currently busy. Please wait...
           </div>
         )}
