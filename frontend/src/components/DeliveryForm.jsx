@@ -1,189 +1,226 @@
 import React, { useState } from 'react';
-import './DeliveryForm.css';
-import { submitDelivery } from '../utils/api';
-import { toast } from 'react-toastify';
+import { dispatchDrone } from '../utils/api';
 
-const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
-  const [latitude, setLatitude] = useState(55.9445);
-  const [longitude, setLongitude] = useState(-3.1892);
-  const [capacity, setCapacity] = useState(2.0);
-  const [cooling, setCooling] = useState(false);
-  const [heating, setHeating] = useState(false);
+const DELIVERY_LOCATIONS = [
+  { name: "Princes Street", lat: 55.9520, lng: -3.1960 },
+  { name: "Royal Infirmary", lat: 55.9213, lng: -3.1359 },
+  { name: "Edinburgh Castle", lat: 55.9486, lng: -3.1999 },
+  { name: "Holyrood Palace", lat: 55.9527, lng: -3.1720 },
+  { name: "Arthur's Seat", lat: 55.9444, lng: -3.1618 },
+  { name: "Leith Walk", lat: 55.9697, lng: -3.1735 },
+  { name: "Ocean Terminal", lat: 55.9808, lng: -3.1730 },
+  { name: "Portobello Beach", lat: 55.9544, lng: -3.1140 },
+  { name: "Haymarket Station", lat: 55.9465, lng: -3.2185 },
+  { name: "Murrayfield Stadium", lat: 55.9428, lng: -3.2410 },
+  { name: "Royal Botanic Garden", lat: 55.9657, lng: -3.2091 },
+  { name: "Cameron Toll", lat: 55.9283, lng: -3.1582 },
+  { name: "Craigmillar Castle", lat: 55.9247, lng: -3.1401 },
+  { name: "Edinburgh Zoo", lat: 55.9424, lng: -3.2684 },
+  { name: "Queensferry Crossing", lat: 55.9891, lng: -3.3984 }
+];
+
+const DeliveryForm = () => {
+  const [orderItems, setOrderItems] = useState([]);
+  const [currentDelivery, setCurrentDelivery] = useState({
+    customerName: '',
+    toLocation: '',
+    requiresCooling: false,
+    requiresHeating: false,
+    capacity: ''
+  });
   const [submitting, setSubmitting] = useState(false);
 
-  const presetLocations = [
-    { name: '🏥 Royal Infirmary', lat: 55.9213, lng: -3.1363 },
-    { name: '🏛️ University', lat: 55.9445, lng: -3.1892 },
-    { name: '🏰 Castle', lat: 55.9486, lng: -3.1999 },
-    { name: '🌳 Princes St', lat: 55.9507, lng: -3.2055 }
-  ];
-
-  const handlePresetClick = (preset) => {
-    setLatitude(preset.lat);
-    setLongitude(preset.lng);
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setCurrentDelivery(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
+  const addToOrder = () => {
+    if (!currentDelivery.customerName || !currentDelivery.toLocation || !currentDelivery.capacity) {
+      alert('Please fill in all required fields (customer name, delivery location, and capacity)');
+      return;
+    }
+
+    const toPoint = DELIVERY_LOCATIONS.find(loc => loc.name === currentDelivery.toLocation);
+    if (!toPoint) {
+      alert('Invalid delivery location');
+      return;
+    }
+
+    setOrderItems([...orderItems, {
+      ...currentDelivery,
+      toLat: toPoint.lat,
+      toLng: toPoint.lng,
+      capacity: parseInt(currentDelivery.capacity),
+      id: Date.now()
+    }]);
+
+    setCurrentDelivery({
+      customerName: '',
+      toLocation: '',
+      requiresCooling: false,
+      requiresHeating: false,
+      capacity: ''
+    });
+  };
+
+  const removeFromOrder = (id) => {
+    setOrderItems(orderItems.filter(item => item.id !== id));
+  };
+
+  const dispatchOrder = async () => {
+    if (orderItems.length === 0) {
+      alert('Please add at least one delivery to the order');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      const deliveryData = {
-        latitude,
-        longitude,
-        capacity,
-        cooling,
-        heating
-      };
+      let successCount = 0;
+      let failedDeliveries = [];
 
-      console.log('📦 Submitting delivery:', deliveryData);
-      const result = await submitDelivery(deliveryData);
-      
-      console.log('✅ Delivery result:', result);
-
-      if (result.success) {
-        toast.success(`✅ Drone ${result.droneId} dispatched!`);
-        if (onDeliverySubmitted) {
-          onDeliverySubmitted(result);
+      for (const item of orderItems) {
+        try {
+          // Backend will determine which service point to use
+          // We just send destination coordinates and capabilities
+          await dispatchDrone(
+            item.customerName,
+            item.toLng,  // Backend expects these parameters
+            item.toLat,
+            item.toLng,
+            item.toLat,
+            item.requiresCooling,
+            item.requiresHeating,
+            item.capacity
+          );
+          successCount++;
+        } catch (error) {
+          console.error('Failed to dispatch:', error);
+          failedDeliveries.push(item.customerName);
         }
-      } else {
-        toast.error(`❌ ${result.message}`);
+      }
+
+      if (failedDeliveries.length > 0) {
+        alert(`⚠️ ${failedDeliveries.length} delivery(s) could not be dispatched:\n${failedDeliveries.join(', ')}\n\nNo available drones with required capabilities.`);
+      }
+
+      if (successCount > 0) {
+        setOrderItems([]);
       }
     } catch (error) {
-      console.error('❌ Error submitting delivery:', error);
-      toast.error(`❌ Failed: ${error.message}`);
+      console.error('Error dispatching order:', error);
+      alert('Failed to dispatch order');
     } finally {
-      // Allow button to be clicked again after a short delay
-      setTimeout(() => {
-        setSubmitting(false);
-      }, 500);
+      setSubmitting(false);
     }
   };
 
   return (
     <div className="delivery-form">
-      <h2>📦 New Delivery</h2>
-      
-      <div 
-        className="available-badge" 
-        style={{
-          backgroundColor: availableDrones > 0 ? '#10b981' : '#f59e0b',
-          color: 'white'
-        }}
-      >
-        {availableDrones > 0 ? `✅ ${availableDrones} Available` : '⏳ All Drones Busy'}
+      <h2>Create Delivery Order</h2>
+
+      <div className="form-group">
+        <label>Customer Name *</label>
+        <input
+          type="text"
+          name="customerName"
+          value={currentDelivery.customerName}
+          onChange={handleInputChange}
+          placeholder="Enter customer name"
+        />
       </div>
 
-      <form onSubmit={handleSubmit}>
-        <div className="form-section">
-          <h4>Quick Locations</h4>
-          <div className="preset-grid">
-            {presetLocations.map((preset, index) => (
-              <button
-                key={index}
-                type="button"
-                className="preset-button"
-                onClick={() => handlePresetClick(preset)}
-              >
-                {preset.name}
-              </button>
+      <div className="form-group">
+        <label>Deliver To *</label>
+        <select
+          name="toLocation"
+          value={currentDelivery.toLocation}
+          onChange={handleInputChange}
+        >
+          <option value="">Select delivery location...</option>
+          {DELIVERY_LOCATIONS.map((loc, idx) => (
+            <option key={idx} value={loc.name}>
+              {loc.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label>Capacity (grams) *</label>
+        <input
+          type="number"
+          name="capacity"
+          value={currentDelivery.capacity}
+          onChange={handleInputChange}
+          placeholder="e.g., 500"
+          min="1"
+        />
+      </div>
+
+      <div className="form-group-inline">
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            name="requiresCooling"
+            checked={currentDelivery.requiresCooling}
+            onChange={handleInputChange}
+          />
+          <span>Requires Cooling</span>
+        </label>
+
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            name="requiresHeating"
+            checked={currentDelivery.requiresHeating}
+            onChange={handleInputChange}
+          />
+          <span>Requires Heating</span>
+        </label>
+      </div>
+
+      <button className="btn btn-add" onClick={addToOrder}>
+        Add to Order
+      </button>
+
+      {orderItems.length > 0 && (
+        <div className="order-items">
+          <h3>Order Items ({orderItems.length})</h3>
+          <div className="order-list">
+            {orderItems.map((item) => (
+              <div key={item.id} className="order-item">
+                <div className="order-item-info">
+                  <strong>{item.customerName}</strong>
+                  <div className="order-item-details">
+                    📍 {item.toLocation}
+                  </div>
+                  <div className="order-item-meta">
+                    {item.capacity}g
+                    {item.requiresCooling && ' • ❄️ Cooling'}
+                    {item.requiresHeating && ' • 🔥 Heating'}
+                  </div>
+                </div>
+                <button className="btn-remove" onClick={() => removeFromOrder(item.id)}>
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         </div>
+      )}
 
-        <div className="form-section">
-          <h4>Coordinates</h4>
-          <div className="coordinate-inputs">
-            <div className="input-group">
-              <label htmlFor="latitude">Latitude</label>
-              <input
-                id="latitude"
-                type="number"
-                step="0.0001"
-                value={latitude}
-                onChange={(e) => setLatitude(parseFloat(e.target.value))}
-                required
-              />
-            </div>
-            <div className="input-group">
-              <label htmlFor="longitude">Longitude</label>
-              <input
-                id="longitude"
-                type="number"
-                step="0.0001"
-                value={longitude}
-                onChange={(e) => setLongitude(parseFloat(e.target.value))}
-                required
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="form-section">
-          <h4>Package Details</h4>
-          <div className="input-group">
-            <label htmlFor="capacity">
-              Capacity: <strong>{capacity} kg</strong>
-            </label>
-            <input
-              id="capacity"
-              type="range"
-              min="0.5"
-              max="10"
-              step="0.5"
-              value={capacity}
-              onChange={(e) => setCapacity(parseFloat(e.target.value))}
-            />
-            <div className="capacity-display">
-              {capacity} kg
-            </div>
-          </div>
-        </div>
-
-        <div className="form-section">
-          <h4>Special Requirements</h4>
-          <div className="checkbox-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={cooling}
-                onChange={(e) => setCooling(e.target.checked)}
-              />
-              <span>❄️ Cooling Required</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={heating}
-                onChange={(e) => setHeating(e.target.checked)}
-              />
-              <span>🔥 Heating Required</span>
-            </label>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          className="submit-button"
-        >
-          {submitting ? '⏳ Dispatching...' : '🚁 Dispatch Drone'}
-        </button>
-
-        {availableDrones === 0 && (
-          <div className="info-message" style={{
-            marginTop: '12px',
-            padding: '12px',
-            background: '#fef3c7',
-            color: '#92400e',
-            borderRadius: '6px',
-            fontSize: '13px',
-            textAlign: 'center'
-          }}>
-            ℹ️ All drones busy. Next available drone will be dispatched.
-          </div>
-        )}
-      </form>
+      <button
+        className="btn btn-dispatch"
+        onClick={dispatchOrder}
+        disabled={orderItems.length === 0 || submitting}
+      >
+        {submitting ? 'Dispatching...' : `Dispatch Order (${orderItems.length})`}
+      </button>
     </div>
   );
 };

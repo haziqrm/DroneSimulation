@@ -1,130 +1,101 @@
-import React, { useState, useEffect } from 'react';
-import './App.css';
+import React from 'react';
 import DeliveryForm from './components/DeliveryForm';
 import DroneMap from './components/DroneMap';
-import DroneList from './components/DroneList';
-import { useWebSocket } from './hooks/useWebSocket';
-import { getAvailableDrones } from './utils/api';
-import { ToastContainer, toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import useWebSocket from './hooks/useWebSocket';
+import './App.css';
 
 function App() {
-  const [activeDrones, setActiveDrones] = useState({});
-  const [selectedDroneId, setSelectedDroneId] = useState(null);
-  const [availableDronesCount, setAvailableDronesCount] = useState(0);
+  const { drones, isConnected } = useWebSocket();
 
-  // WebSocket callbacks
-  const handleDroneUpdate = (update) => {
-    console.log('📥 Drone update:', update);
-    
-    setActiveDrones(prev => ({
-      ...prev,
-      [update.droneId]: {
-        droneId: update.droneId,
-        deliveryId: update.deliveryId,
-        currentPosition: {
-          latitude: update.latitude,
-          longitude: update.longitude
-        },
-        status: update.status,
-        progress: update.progress,
-        capacityUsed: update.capacityUsed,
-        totalCapacity: update.totalCapacity
-      }
-    }));
-  };
-
-  const handleSystemState = (state) => {
-    console.log('🖥️ System state:', state);
-    if (state.availableDrones !== undefined) {
-      setAvailableDronesCount(state.availableDrones);
-    }
-  };
-
-  const handleDeliveryStatus = (status) => {
-    console.log('📦 Delivery status:', status);
-    
-    if (status.status === 'COMPLETED') {
-      toast.success(`✅ Delivery ${status.deliveryId} completed!`);
-      
-      // Remove completed drone after delay
-      setTimeout(() => {
-        setActiveDrones(prev => {
-          const updated = { ...prev };
-          delete updated[status.droneId];
-          return updated;
-        });
-      }, 3000);
-      
-      fetchAvailableDrones();
-    } else if (status.status === 'FAILED') {
-      toast.error(`❌ Delivery ${status.deliveryId} failed: ${status.message}`);
-    }
-  };
-
-  // Connect to WebSocket
-  const { connected } = useWebSocket(
-    handleDroneUpdate,
-    handleSystemState,
-    handleDeliveryStatus
+  const activeDrones = drones.filter(drone => 
+    drone.status === 'FLYING' || drone.status === 'DELIVERING'
+  );
+  
+  const pendingDrones = drones.filter(drone => 
+    drone.status === 'IDLE' || drone.status === 'PENDING'
   );
 
-  // Fetch available drones
-  const fetchAvailableDrones = async () => {
-    try {
-      const drones = await getAvailableDrones();
-      setAvailableDronesCount(drones.length);
-    } catch (error) {
-      console.error('Error fetching available drones:', error);
-    }
-  };
-
-  // Initial fetch
-  useEffect(() => {
-    fetchAvailableDrones();
-    const interval = setInterval(fetchAvailableDrones, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleDeliverySubmitted = () => {
-    fetchAvailableDrones();
-  };
-
   return (
-    <div className="App">
-      <header className="App-header">
+    <div className="app-container">
+      <header className="header">
         <h1>🚁 Drone Dispatch System</h1>
-        <div className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
-          <span className="status-indicator"></span>
-          <span>{connected ? 'Connected' : 'Disconnected'}</span>
+        <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
+          {isConnected ? '● Connected' : '○ Disconnected'}
         </div>
       </header>
 
-      <div className="main-container">
-        <aside className="sidebar left">
-          <DeliveryForm 
-            availableDrones={availableDronesCount}
-            onDeliverySubmitted={handleDeliverySubmitted}
-          />
-        </aside>
+      <div className="main-content">
+        <div className="sidebar">
+          <DeliveryForm />
+          
+          {/* Active Deliveries */}
+          <div className="delivery-section">
+            <h2>Active Deliveries ({activeDrones.length})</h2>
+            {activeDrones.length === 0 ? (
+              <div className="empty-state">No active deliveries</div>
+            ) : (
+              <div className="delivery-list">
+                {activeDrones.map((drone) => (
+                  <div key={drone.droneId} className="delivery-card active">
+                    <div className="delivery-header">
+                      <div className="drone-number">Drone #{drone.droneNumber}</div>
+                      <span className={`status-badge ${drone.status.toLowerCase()}`}>
+                        {drone.status}
+                      </span>
+                    </div>
+                    <div className="delivery-info">
+                      <div className="customer-name">{drone.customerName}</div>
+                      <div className="delivery-meta">
+                        Progress: {drone.progress?.toFixed(0) || 0}%
+                      </div>
+                      <div className="progress-bar">
+                        <div 
+                          className="progress-fill" 
+                          style={{ width: `${drone.progress || 0}%` }}
+                        />
+                      </div>
+                      <div className="delivery-meta">
+                        Battery: {drone.battery?.toFixed(1) || 0}%
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-        <main className="map-container">
-          <DroneMap 
-            activeDrones={activeDrones}
-            selectedDroneId={selectedDroneId}
-          />
-        </main>
+          {/* Pending Deliveries */}
+          <div className="delivery-section">
+            <h2>Pending Deliveries ({pendingDrones.length})</h2>
+            {pendingDrones.length === 0 ? (
+              <div className="empty-state">No pending deliveries</div>
+            ) : (
+              <div className="delivery-list">
+                {pendingDrones.map((drone) => (
+                  <div key={drone.droneId} className="delivery-card pending">
+                    <div className="delivery-header">
+                      <div className="drone-number">Drone #{drone.droneNumber}</div>
+                      <span className="status-badge pending">
+                        {drone.status}
+                      </span>
+                    </div>
+                    <div className="delivery-info">
+                      <div className="customer-name">{drone.customerName}</div>
+                      <div className="delivery-meta">
+                        Waiting for dispatch...
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
-        <aside className="sidebar right">
-          <DroneList 
-            drones={Object.values(activeDrones)}
-            selectedDroneId={selectedDroneId}
-            onDroneSelect={setSelectedDroneId}
-          />
-        </aside>
+        <div className="map-container">
+          <DroneMap drones={drones} />
+        </div>
       </div>
-
-      <ToastContainer position="top-right" autoClose={5000} />
     </div>
   );
 }
