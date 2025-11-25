@@ -1,6 +1,55 @@
 const API_BASE = 'http://localhost:8080/api';
 const ILP_BASE = 'https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net';
 
+/**
+ * Dispatch multiple deliveries as a batch to the same drone
+ */
+export const dispatchBatch = async (deliveries, batchId) => {
+  console.log('🚀 Dispatching batch:', batchId);
+  console.log('📦 Deliveries:', deliveries.length);
+  
+  try {
+    const response = await fetch(`${API_BASE}/v1/submitBatch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        batchId: batchId,
+        deliveries: deliveries.map(d => ({
+          customerName: d.customerName,
+          latitude: d.toLat,
+          longitude: d.toLng,
+          capacity: d.capacity,
+          cooling: d.requiresCooling,
+          heating: d.requiresHeating
+        }))
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Batch dispatch failed:', errorText);
+      throw new Error(`Failed to dispatch batch: ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Batch dispatch result:', result);
+    
+    if (!result.success) {
+      throw new Error(result.message || 'Batch dispatch failed');
+    }
+
+    return result;
+  } catch (error) {
+    console.error('❌ Error in batch dispatch:', error);
+    throw error;
+  }
+};
+
+/**
+ * Dispatch a single delivery
+ */
 export const dispatchDrone = async (
   customerName, 
   fromLongitude, 
@@ -12,6 +61,9 @@ export const dispatchDrone = async (
   capacity = 0
 ) => {
   console.log('🚁 Dispatching drone for:', customerName);
+  console.log('📊 Capacity:', capacity, 'kg');
+  console.log('❄️ Cooling:', requiresCooling);
+  console.log('🔥 Heating:', requiresHeating);
   
   const requestBody = {
     customerName,
@@ -21,7 +73,6 @@ export const dispatchDrone = async (
     toLatitude
   };
 
-  // Add capabilities if provided
   if (requiresCooling !== undefined) {
     requestBody.requiresCooling = requiresCooling;
   }
@@ -34,22 +85,39 @@ export const dispatchDrone = async (
 
   console.log('📦 Request payload:', requestBody);
   
-  const response = await fetch(`${API_BASE}/dispatch`, {
+  const response = await fetch(`${API_BASE}/v1/submitDelivery`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify({
+      latitude: toLatitude,
+      longitude: toLongitude,
+      capacity: capacity,
+      cooling: requiresCooling,
+      heating: requiresHeating
+    })
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to dispatch drone');
+    const errorText = await response.text();
+    console.error('❌ Server response:', errorText);
+    throw new Error(`Failed to dispatch drone: ${errorText}`);
   }
 
-  return response.json();
+  const result = await response.json();
+  console.log('✅ Dispatch result:', result);
+  
+  if (!result.success) {
+    throw new Error(result.message || 'Dispatch failed');
+  }
+
+  return result;
 };
 
+/**
+ * Fetch restricted areas from ILP REST API
+ */
 export const getRestrictedAreas = async () => {
   console.log('📡 Fetching restricted areas from:', `${ILP_BASE}/restricted-areas`);
   
@@ -70,6 +138,9 @@ export const getRestrictedAreas = async () => {
   }
 };
 
+/**
+ * Fetch service points from ILP REST API
+ */
 export const getServicePoints = async () => {
   console.log('📡 Fetching service points from:', `${ILP_BASE}/service-points`);
   

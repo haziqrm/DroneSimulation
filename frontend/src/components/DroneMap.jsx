@@ -104,33 +104,6 @@ const DroneMap = ({ drones }) => {
     });
   };
 
-  const getCompletedPath = (drone) => {
-    if (!drone.route || !drone.route.coordinates || drone.route.coordinates.length === 0) {
-      return [];
-    }
-
-    const currentLat = drone.latitude;
-    const currentLng = drone.longitude;
-    
-    let closestIndex = 0;
-    let minDistance = Infinity;
-    
-    drone.route.coordinates.forEach((coord, index) => {
-      const distance = Math.sqrt(
-        Math.pow(coord[1] - currentLat, 2) + 
-        Math.pow(coord[0] - currentLng, 2)
-      );
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestIndex = index;
-      }
-    });
-
-    return drone.route.coordinates
-      .slice(0, closestIndex + 1)
-      .map(coord => [coord[1], coord[0]]);
-  };
-
   return (
     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
       <MapContainer
@@ -188,63 +161,21 @@ const DroneMap = ({ drones }) => {
           );
         })}
 
-        {/* Drones */}
-        {drones && drones
-          .filter(drone => drone.status !== 'COMPLETED')
-          .map((drone) => (
-            <React.Fragment key={drone.droneId}>
-              {/* Full Route (dashed) */}
-              {drone.route && drone.route.coordinates && drone.route.coordinates.length > 0 && (
-                <Polyline
-                  positions={drone.route.coordinates.map(coord => [coord[1], coord[0]])}
-                  pathOptions={{
-                    color: '#95a5a6',
-                    weight: 2,
-                    dashArray: '5, 10',
-                    opacity: 0.5
-                  }}
-                />
-              )}
-
-              {/* Completed Path (solid) */}
-              {drone.route && drone.route.coordinates && drone.route.coordinates.length > 0 && (
-                <Polyline
-                  positions={getCompletedPath(drone)}
-                  pathOptions={{
-                    color: '#3498db',
-                    weight: 3,
-                    opacity: 0.8
-                  }}
-                />
-              )}
-
-              {/* Delivery Point */}
-              {drone.deliveryLatitude && drone.deliveryLongitude && (
-                <Marker
-                  position={[drone.deliveryLatitude, drone.deliveryLongitude]}
-                  icon={createDeliveryIcon()}
-                >
-                  <Popup>
-                    <strong>Delivery Point</strong><br/>
-                    {drone.customerName}
-                  </Popup>
-                </Marker>
-              )}
-
-              {/* Drone */}
-              <Marker
-                position={[drone.latitude, drone.longitude]}
-                icon={createDroneIcon(drone.droneNumber)}
-              >
-                <Popup>
-                  <strong>Drone #{drone.droneNumber}</strong><br/>
-                  Status: {drone.status}<br/>
-                  Customer: {drone.customerName}<br/>
-                  Battery: {drone.battery?.toFixed(1)}%
-                </Popup>
-              </Marker>
-            </React.Fragment>
-          ))}
+        {/* Active Drones */}
+        {drones && drones.length > 0 && drones.map((drone) => (
+          <Marker
+            key={drone.droneId}
+            position={[drone.latitude, drone.longitude]}
+            icon={createDroneIcon(drone.droneNumber)}
+          >
+            <Popup>
+              <strong>Drone #{drone.droneNumber}</strong><br/>
+              Status: {drone.status}<br/>
+              Delivery: #{drone.deliveryId}<br/>
+              Progress: {drone.progress?.toFixed(0)}%
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
   );

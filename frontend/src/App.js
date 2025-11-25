@@ -8,11 +8,11 @@ function App() {
   const { drones, isConnected } = useWebSocket();
 
   const activeDrones = drones.filter(drone => 
-    drone.status === 'FLYING' || drone.status === 'DELIVERING'
+    drone.status === 'FLYING' || drone.status === 'DELIVERING' || drone.status === 'RETURNING'
   );
   
   const pendingDrones = drones.filter(drone => 
-    drone.status === 'IDLE' || drone.status === 'PENDING'
+    drone.status === 'IDLE' || drone.status === 'PENDING' || drone.status === 'DEPLOYING'
   );
 
   return (
@@ -45,6 +45,18 @@ function App() {
                     </div>
                     <div className="delivery-info">
                       <div className="customer-name">{drone.customerName}</div>
+                      {drone.batchId && (
+                        <div className="batch-info">
+                          <span className="batch-badge">
+                            📦 {drone.batchId}
+                          </span>
+                          {drone.currentDeliveryInBatch && drone.totalDeliveriesInBatch && (
+                            <span className="batch-progress-text">
+                              ({drone.currentDeliveryInBatch}/{drone.totalDeliveriesInBatch})
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <div className="delivery-meta">
                         Progress: {drone.progress?.toFixed(0) || 0}%
                       </div>

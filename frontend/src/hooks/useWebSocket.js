@@ -11,6 +11,7 @@ export default function useWebSocket() {
   const connectionAttempts = useRef(0);
   const isConnectingRef = useRef(false);
   const statusStableTimeoutRef = useRef(null);
+  const droneNumberMapRef = useRef(new Map()); // Track drone ID to number mapping
 
   useEffect(() => {
     const connect = () => {
@@ -29,7 +30,6 @@ export default function useWebSocket() {
         heartbeatIncoming: 20000,
         heartbeatOutgoing: 20000,
         debug: (str) => {
-          // Only log important messages, not heartbeats
           if (!str.includes('PING') && !str.includes('PONG')) {
             console.log('STOMP:', str);
           }
@@ -39,18 +39,66 @@ export default function useWebSocket() {
           connectionAttempts.current = 0;
           isConnectingRef.current = false;
           
-          // Set connected status with stability timeout
           clearTimeout(statusStableTimeoutRef.current);
           statusStableTimeoutRef.current = setTimeout(() => {
             setIsConnected(true);
-          }, 500); // Wait 500ms before showing connected to avoid flicker
+          }, 500);
 
           // Subscribe to drone updates
-          stompClient.subscribe('/topic/drones', (message) => {
+          stompClient.subscribe('/topic/drone-updates', (message) => {
             try {
-              const dronesData = JSON.parse(message.body);
-              console.log('📡 Received drone update:', dronesData);
-              setDrones(dronesData);
+              const droneUpdate = JSON.parse(message.body);
+              console.log('🚁 Drone update:', droneUpdate);
+              
+              setDrones(prevDrones => {
+                // Get or assign drone number
+                if (!droneNumberMapRef.current.has(droneUpdate.droneId)) {
+                  const nextNumber = droneNumberMapRef.current.size + 1;
+                  droneNumberMapRef.current.set(droneUpdate.droneId, nextNumber);
+                }
+                const droneNumber = droneNumberMapRef.current.get(droneUpdate.droneId);
+
+                // Remove completed drones after a delay
+                if (droneUpdate.status === 'COMPLETED') {
+                  console.log('✅ Drone', droneUpdate.droneId, 'completed, will remove in 3 seconds');
+                  setTimeout(() => {
+                    setDrones(prev => prev.filter(d => d.droneId !== droneUpdate.droneId));
+                  }, 3000);
+                  return prevDrones;
+                }
+
+                // Update or add drone
+                const existingIndex = prevDrones.findIndex(d => d.droneId === droneUpdate.droneId);
+                
+                const updatedDrone = {
+                  droneId: droneUpdate.droneId,
+                  droneNumber: droneNumber,
+                  deliveryId: droneUpdate.deliveryId,
+                  customerName: droneUpdate.batchId ? 
+                    `${droneUpdate.batchId} (${droneUpdate.currentDeliveryInBatch || 1}/${droneUpdate.totalDeliveriesInBatch || 1})` :
+                    `Delivery #${droneUpdate.deliveryId}`,
+                  status: droneUpdate.status,
+                  latitude: droneUpdate.latitude,
+                  longitude: droneUpdate.longitude,
+                  progress: (droneUpdate.progress || 0) * 100,
+                  battery: 100 - ((droneUpdate.progress || 0) * 100),
+                  deliveryLatitude: droneUpdate.latitude,
+                  deliveryLongitude: droneUpdate.longitude,
+                  route: null,
+                  // Batch tracking
+                  batchId: droneUpdate.batchId,
+                  currentDeliveryInBatch: droneUpdate.currentDeliveryInBatch,
+                  totalDeliveriesInBatch: droneUpdate.totalDeliveriesInBatch
+                };
+
+                if (existingIndex >= 0) {
+                  const newDrones = [...prevDrones];
+                  newDrones[existingIndex] = updatedDrone;
+                  return newDrones;
+                } else {
+                  return [...prevDrones, updatedDrone];
+                }
+              });
             } catch (error) {
               console.error('❌ Error parsing drone update:', error);
             }
@@ -91,7 +139,6 @@ export default function useWebSocket() {
           clearTimeout(statusStableTimeoutRef.current);
           setIsConnected(false);
           
-          // Schedule reconnect with exponential backoff
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
           }
@@ -112,7 +159,6 @@ export default function useWebSocket() {
 
     connect();
 
-    // Cleanup on unmount
     return () => {
       console.log('🧹 Cleaning up WebSocket connection');
       

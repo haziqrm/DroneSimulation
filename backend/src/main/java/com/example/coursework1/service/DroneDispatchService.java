@@ -22,9 +22,13 @@ public class DroneDispatchService {
     private final ServicePointService servicePointService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    // Track active drones and their states - STATIC to survive service recreations
+    // Track active drones - STATIC to survive service recreations
     private static final Map<String, ActiveDroneState> activeDrones = new ConcurrentHashMap<>();
     private static final AtomicInteger deliveryIdCounter = new AtomicInteger(1000);
+
+    // Batch tracking
+    private static final Map<String, String> batchToDroneMap = new ConcurrentHashMap<>();
+    private static final Map<String, BatchTracker> activeBatchTrackers = new ConcurrentHashMap<>();
 
     public DroneDispatchService(DeliveryPlannerService plannerService,
                                 DroneService droneService,
@@ -39,94 +43,137 @@ public class DroneDispatchService {
     }
 
     /**
-     * Submit a new delivery request - finds available drone and dispatches immediately
+     * Submit a batch of deliveries
+     */
+    public Map<String, Object> submitBatch(BatchDeliveryRequest batchRequest) {
+        logger.info("📦 Processing batch: {}", batchRequest.getBatchId());
+
+        List<Map<String, Object>> deliveryResults = new ArrayList<>();
+        String assignedDroneId = null;
+
+        for (int i = 0; i < batchRequest.getDeliveries().size(); i++) {
+            DeliveryRequest delivery = batchRequest.getDeliveries().get(i);
+
+            logger.info("🚁 Processing delivery {}/{}: {}",
+                    i + 1, batchRequest.getDeliveries().size(), delivery);
+
+            DeliverySubmissionResult result = submitDeliveryInternal(
+                    delivery,
+                    batchRequest.getBatchId(),
+                    i,
+                    batchRequest.getDeliveries().size()
+            );
+
+            if (assignedDroneId == null && result.getDroneId() != null) {
+                assignedDroneId = result.getDroneId();
+                logger.info("🎯 Batch {} assigned to drone: {}", batchRequest.getBatchId(), assignedDroneId);
+            }
+
+            Map<String, Object> deliveryResult = new HashMap<>();
+            deliveryResult.put("success", result.isSuccess());
+            deliveryResult.put("deliveryId", result.getDeliveryId());
+            deliveryResult.put("message", result.getMessage());
+            deliveryResults.add(deliveryResult);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Batch dispatched successfully");
+        response.put("batchId", batchRequest.getBatchId());
+        response.put("droneId", assignedDroneId);
+        response.put("deliveryCount", batchRequest.getDeliveries().size());
+        response.put("deliveryResults", deliveryResults);
+
+        logger.info("✅ Batch {} completed. Drone: {}, Deliveries: {}",
+                batchRequest.getBatchId(), assignedDroneId, batchRequest.getDeliveries().size());
+
+        return response;
+    }
+
+    /**
+     * Submit a single delivery
      */
     public DeliverySubmissionResult submitDelivery(DeliveryRequest request) {
+        return submitDeliveryInternal(request, null, 0, 1);
+    }
+
+    /**
+     * Internal delivery submission with batch support
+     */
+    private DeliverySubmissionResult submitDeliveryInternal(
+            DeliveryRequest request,
+            String batchId,
+            int sequenceInBatch,
+            int totalInBatch) {
+
         logger.info("📦 New delivery request: capacity={}, cooling={}, heating={}, location=({}, {})",
                 request.getCapacity(), request.isCooling(), request.isHeating(),
                 request.getLatitude(), request.getLongitude());
 
-        // Generate delivery ID
         int deliveryId = deliveryIdCounter.getAndIncrement();
 
-        // Create dispatch record
         MedDispatchRec dispatch = new MedDispatchRec(
                 deliveryId,
-                "2025-01-01", // Dummy date
-                "12:00",      // Dummy time
+                "2025-01-01",
+                "12:00",
                 new Requirements(request.getCapacity(), request.isCooling(),
                         request.isHeating(), null),
                 new Position(request.getLongitude(), request.getLatitude())
         );
 
+        // Check if this is part of a batch
+        boolean isPartOfBatch = batchId != null;
+        String assignedDroneId = null;
+
+        if (isPartOfBatch) {
+            logger.info("🔗 Delivery is part of batch: {} ({}/{})",
+                    batchId, sequenceInBatch + 1, totalInBatch);
+
+            // Check if we already assigned a drone to this batch
+            assignedDroneId = batchToDroneMap.get(batchId);
+
+            if (assignedDroneId != null) {
+                logger.info("♻️ Reusing drone {} for batch {}", assignedDroneId, batchId);
+            }
+        }
+
         // Find available drones
         List<Drone> allDrones = droneService.fetchAllDrones();
         Requirements reqs = dispatch.getRequirements();
 
-        logger.info("🔍 Fetched {} drones, {} currently active",
-                allDrones.size(), activeDrones.size());
-        logger.info("📋 Requirements: capacity={} kg, cooling={}, heating={}",
-                reqs.getCapacity(), reqs.isCooling(), reqs.isHeating());
+        List<String> availableDroneIds;
 
-        List<String> availableDroneIds = allDrones.stream()
-                .filter(drone -> {
-                    String droneId = drone.getId();
+        if (assignedDroneId != null) {
+            // Use the drone already assigned to this batch
+            availableDroneIds = List.of(assignedDroneId);
+        } else {
+            // Find available drones
+            availableDroneIds = allDrones.stream()
+                    .filter(drone -> {
+                        String droneId = drone.getId();
 
-                    // Skip if currently busy
-                    if (activeDrones.containsKey(droneId)) {
-                        logger.debug("  ❌ Drone {} is currently busy", droneId);
-                        return false;
-                    }
+                        if (activeDrones.containsKey(droneId)) {
+                            return false;
+                        }
 
-                    // Check capability
-                    Capability cap = drone.getCapability();
-                    if (cap == null) {
-                        logger.debug("  ❌ Drone {} has null capability", droneId);
-                        return false;
-                    }
+                        Capability cap = drone.getCapability();
+                        if (cap == null) return false;
+                        if (cap.getCapacity() < reqs.getCapacity() - 0.01) return false;
+                        if (reqs.isCooling() && !cap.isCooling()) return false;
+                        if (reqs.isHeating() && !cap.isHeating()) return false;
 
-                    // Check capacity (with tolerance)
-                    if (cap.getCapacity() < reqs.getCapacity() - 0.01) {
-                        logger.debug("  ❌ Drone {} capacity {} kg < required {} kg",
-                                droneId, cap.getCapacity(), reqs.getCapacity());
-                        return false;
-                    }
-
-                    // Check cooling
-                    if (reqs.isCooling() && !cap.isCooling()) {
-                        logger.debug("  ❌ Drone {} missing cooling capability", droneId);
-                        return false;
-                    }
-
-                    // Check heating
-                    if (reqs.isHeating() && !cap.isHeating()) {
-                        logger.debug("  ❌ Drone {} missing heating capability", droneId);
-                        return false;
-                    }
-
-                    logger.debug("  ✅ Drone {} matches all requirements!", droneId);
-                    return true;
-                })
-                .map(Drone::getId)
-                .toList();
+                        return true;
+                    })
+                    .map(Drone::getId)
+                    .toList();
+        }
 
         if (availableDroneIds.isEmpty()) {
             logger.error("❌ No available drones for delivery {}", deliveryId);
-
-            String errorMsg;
-            if (allDrones.isEmpty()) {
-                errorMsg = "ERROR: No drones available from ILP service.";
-            } else {
-                errorMsg = String.format("No drones match requirements (need %.1f kg, cooling=%s, heating=%s).",
-                        reqs.getCapacity(), reqs.isCooling(), reqs.isHeating());
-            }
-
-            return new DeliverySubmissionResult(false, deliveryId, null, errorMsg);
+            return new DeliverySubmissionResult(false, deliveryId, null,
+                    "No drones match requirements");
         }
 
-        logger.info("✅ Found {} available drones: {}", availableDroneIds.size(), availableDroneIds);
-
-        // Select best drone
         List<ServicePoint> servicePoints = servicePointService.fetchAllServicePoints();
         Position base = servicePoints.isEmpty() ?
                 new Position(-3.1892, 55.9445) :
@@ -137,15 +184,23 @@ public class DroneDispatchService {
                 dispatch.getDelivery(), base);
 
         if (selectedDrone == null) {
-            logger.error("❌ Failed to select drone from available list");
+            logger.error("❌ Failed to select drone");
             return new DeliverySubmissionResult(false, deliveryId, null,
                     "Drone selection failed");
         }
 
+        // Cache drone for batch if needed
+        if (isPartOfBatch && assignedDroneId == null) {
+            batchToDroneMap.put(batchId, selectedDrone.getId());
+            activeBatchTrackers.put(selectedDrone.getId(),
+                    new BatchTracker(batchId, totalInBatch));
+            logger.info("🎯 Assigned drone {} to batch {}", selectedDrone.getId(), batchId);
+        }
+
         logger.info("✅ Selected drone {} for delivery {}", selectedDrone.getId(), deliveryId);
 
-        // Start async delivery mission
-        startDeliveryMission(selectedDrone, dispatch, base);
+        // Start mission
+        startDeliveryMission(selectedDrone, dispatch, base, batchId, sequenceInBatch, totalInBatch);
 
         return new DeliverySubmissionResult(
                 true,
@@ -156,14 +211,14 @@ public class DroneDispatchService {
     }
 
     /**
-     * Start an async delivery mission for a single drone
+     * Start delivery mission with batch tracking
      */
     @Async
-    public void startDeliveryMission(Drone drone, MedDispatchRec dispatch, Position base) {
+    public void startDeliveryMission(Drone drone, MedDispatchRec dispatch, Position base,
+                                     String batchId, int sequenceInBatch, int totalInBatch) {
         String droneId = drone.getId();
         logger.info("🚁 Starting mission: Drone {} → Delivery {}", droneId, dispatch.getId());
 
-        // Calculate path
         CalcDeliveryResult result = plannerService.calcDeliveryPath(List.of(dispatch));
 
         if (result.getDronePaths() == null || result.getDronePaths().isEmpty()) {
@@ -173,7 +228,6 @@ public class DroneDispatchService {
         }
 
         DronePathResult pathResult = result.getDronePaths().get(0);
-
         if (pathResult.getDeliveries().isEmpty()) {
             logger.error("❌ No delivery path for delivery {}", dispatch.getId());
             broadcastDeliveryFailed(droneId, dispatch.getId(), "No valid path");
@@ -182,13 +236,15 @@ public class DroneDispatchService {
 
         List<LngLat> flightPath = pathResult.getDeliveries().get(0).getFlightPath();
 
-        // Create active drone state
         ActiveDroneState state = new ActiveDroneState(
                 droneId,
                 dispatch.getId(),
                 flightPath,
                 drone.getCapability().getCapacity(),
-                dispatch.getRequirements().getCapacity()
+                dispatch.getRequirements().getCapacity(),
+                batchId,
+                sequenceInBatch,
+                totalInBatch
         );
 
         activeDrones.put(droneId, state);
@@ -196,7 +252,9 @@ public class DroneDispatchService {
 
         logger.info("✈️ Drone {} starting flight with {} waypoints", droneId, flightPath.size());
 
-        // Simulate flight
+        // Get batch tracker
+        BatchTracker batchTracker = batchId != null ? activeBatchTrackers.get(droneId) : null;
+
         try {
             for (int i = 0; i < flightPath.size(); i++) {
                 if (!activeDrones.containsKey(droneId)) {
@@ -209,26 +267,43 @@ public class DroneDispatchService {
                 state.setStepIndex(i);
 
                 // Determine status
+                double progress = (double) i / flightPath.size();
                 if (i >= flightPath.size() - 2) {
                     state.setStatus("DELIVERING");
-                } else if (i > flightPath.size() / 2) {
+                } else if (progress > 0.55 && progress < 0.95) {
                     state.setStatus("RETURNING");
+                } else if (progress < 0.1) {
+                    state.setStatus("DEPLOYING");
                 } else {
                     state.setStatus("FLYING");
                 }
 
-                // Broadcast position update
-                broadcastDroneUpdate(state);
-
+                broadcastDroneUpdate(state, batchTracker);
                 Thread.sleep(100);
             }
 
-            // Mission complete
             logger.info("🎉 Drone {} completed delivery {}", droneId, dispatch.getId());
-            state.setStatus("COMPLETED");
-            broadcastDroneUpdate(state);
 
-            Thread.sleep(2000);
+            // Update batch tracker
+            if (batchTracker != null) {
+                batchTracker.completedDeliveries++;
+
+                if (batchTracker.completedDeliveries >= batchTracker.totalDeliveries) {
+                    logger.info("✅ Batch {} completed all {} deliveries",
+                            batchTracker.batchId, batchTracker.totalDeliveries);
+                    batchToDroneMap.remove(batchTracker.batchId);
+                    activeBatchTrackers.remove(droneId);
+
+                    state.setStatus("COMPLETED");
+                    broadcastDroneUpdate(state, batchTracker);
+                    Thread.sleep(3000);
+                }
+            } else {
+                state.setStatus("COMPLETED");
+                broadcastDroneUpdate(state, null);
+                Thread.sleep(3000);
+            }
+
             activeDrones.remove(droneId);
             broadcastSystemState();
             broadcastDeliveryCompleted(droneId, dispatch.getId());
@@ -273,7 +348,7 @@ public class DroneDispatchService {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    private void broadcastDroneUpdate(ActiveDroneState state) {
+    private void broadcastDroneUpdate(ActiveDroneState state, BatchTracker batchTracker) {
         DroneUpdate update = new DroneUpdate();
         update.setDroneId(state.getDroneId());
         update.setDeliveryId(state.getDeliveryId());
@@ -284,6 +359,13 @@ public class DroneDispatchService {
         update.setCapacityUsed(state.getCapacityUsed());
         update.setTotalCapacity(state.getTotalCapacity());
 
+        // Add batch tracking
+        if (batchTracker != null) {
+            update.setBatchId(batchTracker.batchId);
+            update.setCurrentDeliveryInBatch(state.getSequenceInBatch() + 1);
+            update.setTotalDeliveriesInBatch(batchTracker.totalDeliveries);
+        }
+
         messagingTemplate.convertAndSend("/topic/drone-updates", update);
     }
 
@@ -291,7 +373,6 @@ public class DroneDispatchService {
         SystemStateUpdate state = new SystemStateUpdate();
         state.setActiveDrones(activeDrones.size());
         state.setAvailableDrones(countAvailableDrones());
-
         messagingTemplate.convertAndSend("/topic/system-state", state);
     }
 
@@ -301,7 +382,6 @@ public class DroneDispatchService {
         update.setDroneId(droneId);
         update.setStatus("COMPLETED");
         update.setMessage("✅ Delivery completed successfully!");
-
         messagingTemplate.convertAndSend("/topic/delivery-status", update);
     }
 
@@ -311,7 +391,6 @@ public class DroneDispatchService {
         update.setDroneId(droneId);
         update.setStatus("FAILED");
         update.setMessage("❌ " + reason);
-
         messagingTemplate.convertAndSend("/topic/delivery-status", update);
     }
 
@@ -327,25 +406,47 @@ public class DroneDispatchService {
         return new HashMap<>(activeDrones);
     }
 
-    // Inner classes remain the same...
+    // ============================================================================
+    // Inner Classes
+    // ============================================================================
+
+    private static class BatchTracker {
+        String batchId;
+        int totalDeliveries;
+        int completedDeliveries;
+
+        public BatchTracker(String batchId, int totalDeliveries) {
+            this.batchId = batchId;
+            this.totalDeliveries = totalDeliveries;
+            this.completedDeliveries = 0;
+        }
+    }
+
     public static class ActiveDroneState {
         private final String droneId;
         private final int deliveryId;
         private final List<LngLat> flightPath;
         private final double totalCapacity;
         private final double capacityUsed;
+        private final String batchId;
+        private final int sequenceInBatch;
+        private final int totalInBatch;
 
         private LngLat currentPosition;
         private int stepIndex;
         private String status;
 
         public ActiveDroneState(String droneId, int deliveryId, List<LngLat> flightPath,
-                                double totalCapacity, double capacityUsed) {
+                                double totalCapacity, double capacityUsed,
+                                String batchId, int sequenceInBatch, int totalInBatch) {
             this.droneId = droneId;
             this.deliveryId = deliveryId;
             this.flightPath = flightPath;
             this.totalCapacity = totalCapacity;
             this.capacityUsed = capacityUsed;
+            this.batchId = batchId;
+            this.sequenceInBatch = sequenceInBatch;
+            this.totalInBatch = totalInBatch;
             this.currentPosition = flightPath.get(0);
             this.stepIndex = 0;
             this.status = "DEPLOYING";
@@ -362,6 +463,9 @@ public class DroneDispatchService {
         public void setStatus(String status) { this.status = status; }
         public double getTotalCapacity() { return totalCapacity; }
         public double getCapacityUsed() { return capacityUsed; }
+        public String getBatchId() { return batchId; }
+        public int getSequenceInBatch() { return sequenceInBatch; }
+        public int getTotalInBatch() { return totalInBatch; }
     }
 
     public static class DeliveryRequest {
@@ -412,6 +516,9 @@ public class DroneDispatchService {
         private double progress;
         private double capacityUsed;
         private double totalCapacity;
+        private String batchId;
+        private Integer currentDeliveryInBatch;
+        private Integer totalDeliveriesInBatch;
 
         public String getDroneId() { return droneId; }
         public void setDroneId(String id) { this.droneId = id; }
@@ -429,6 +536,12 @@ public class DroneDispatchService {
         public void setCapacityUsed(double cap) { this.capacityUsed = cap; }
         public double getTotalCapacity() { return totalCapacity; }
         public void setTotalCapacity(double cap) { this.totalCapacity = cap; }
+        public String getBatchId() { return batchId; }
+        public void setBatchId(String id) { this.batchId = id; }
+        public Integer getCurrentDeliveryInBatch() { return currentDeliveryInBatch; }
+        public void setCurrentDeliveryInBatch(Integer n) { this.currentDeliveryInBatch = n; }
+        public Integer getTotalDeliveriesInBatch() { return totalDeliveriesInBatch; }
+        public void setTotalDeliveriesInBatch(Integer n) { this.totalDeliveriesInBatch = n; }
     }
 
     public static class SystemStateUpdate {

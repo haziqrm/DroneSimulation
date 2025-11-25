@@ -11,9 +11,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.List;
+import com.example.coursework1.dto.BatchDeliveryRequest;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -189,5 +192,55 @@ public class SimpleController {
                 .toList();
 
         return ResponseEntity.ok(available);
+    }
+
+    @PostMapping("/v1/submitBatch")
+    public ResponseEntity<Map<String, Object>> submitBatch(@RequestBody BatchDeliveryRequest batchRequest) {
+        logger.info("📦 Received batch submission: {}", batchRequest.getBatchId());
+        logger.info("📊 Batch contains {} deliveries", batchRequest.getDeliveries().size());
+
+        try {
+            // Validate batch
+            if (batchRequest.getDeliveries() == null || batchRequest.getDeliveries().isEmpty()) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "Batch must contain at least one delivery");
+                return ResponseEntity.ok(errorResponse);
+            }
+
+            // Calculate total requirements
+            double totalCapacity = 0;
+            boolean requiresCooling = false;
+            boolean requiresHeating = false;
+
+            for (DeliveryRequest delivery : batchRequest.getDeliveries()) {
+                totalCapacity += delivery.getCapacity();
+                if (delivery.isCooling()) requiresCooling = true;
+                if (delivery.isHeating()) requiresHeating = true;
+            }
+
+            logger.info("📊 Batch requirements - Total: {} kg, Cooling: {}, Heating: {}",
+                    totalCapacity, requiresCooling, requiresHeating);
+
+            // Check max capacity
+            if (totalCapacity > 20.0) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "Batch total capacity (" + totalCapacity + " kg) exceeds maximum (20 kg)");
+                return ResponseEntity.ok(errorResponse);
+            }
+
+            // Submit batch
+            Map<String, Object> result = droneDispatchService.submitBatch(batchRequest);
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            logger.error("❌ Error processing batch: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "Failed to process batch: " + e.getMessage());
+            return ResponseEntity.ok(errorResponse);
+        }
     }
 }

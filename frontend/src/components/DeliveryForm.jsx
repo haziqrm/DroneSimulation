@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { dispatchDrone } from '../utils/api';
+import { dispatchDrone, dispatchBatch } from '../utils/api';
 
-const DELIVERY_LOCATIONS = [
+const DELIVERY_PRESETS = [
   { name: "Princes Street", lat: 55.9520, lng: -3.1960 },
   { name: "Royal Infirmary", lat: 55.9213, lng: -3.1359 },
   { name: "Edinburgh Castle", lat: 55.9486, lng: -3.1999 },
@@ -23,12 +23,14 @@ const DeliveryForm = () => {
   const [orderItems, setOrderItems] = useState([]);
   const [currentDelivery, setCurrentDelivery] = useState({
     customerName: '',
-    toLocation: '',
+    locationName: '',
+    toLat: '',
+    toLng: '',
     requiresCooling: false,
     requiresHeating: false,
-    capacity: ''
+    capacity: 2.0 // Default 2kg
   });
-  const [submitting, setSubmitting] = useState(false);
+  const [orderCounter, setOrderCounter] = useState(1);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -38,32 +40,70 @@ const DeliveryForm = () => {
     }));
   };
 
-  const addToOrder = () => {
-    if (!currentDelivery.customerName || !currentDelivery.toLocation || !currentDelivery.capacity) {
-      alert('Please fill in all required fields (customer name, delivery location, and capacity)');
+  const handleCapacityChange = (e) => {
+    setCurrentDelivery(prev => ({
+      ...prev,
+      capacity: parseFloat(e.target.value)
+    }));
+  };
+
+  const handlePresetSelect = (e) => {
+    const presetName = e.target.value;
+    if (!presetName) {
+      setCurrentDelivery(prev => ({
+        ...prev,
+        locationName: '',
+        toLat: '',
+        toLng: ''
+      }));
       return;
     }
 
-    const toPoint = DELIVERY_LOCATIONS.find(loc => loc.name === currentDelivery.toLocation);
-    if (!toPoint) {
-      alert('Invalid delivery location');
+    const preset = DELIVERY_PRESETS.find(p => p.name === presetName);
+    if (preset) {
+      setCurrentDelivery(prev => ({
+        ...prev,
+        locationName: preset.name,
+        toLat: preset.lat.toString(),
+        toLng: preset.lng.toString()
+      }));
+    }
+  };
+
+  const addToOrder = () => {
+    if (!currentDelivery.customerName || !currentDelivery.toLat || !currentDelivery.toLng) {
+      alert('Please fill in customer name and delivery coordinates');
+      return;
+    }
+
+    const lat = parseFloat(currentDelivery.toLat);
+    const lng = parseFloat(currentDelivery.toLng);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      alert('Invalid coordinates. Please enter valid numbers.');
+      return;
+    }
+
+    if (lat < 55.9 || lat > 56.0 || lng < -3.4 || lng > -3.0) {
+      alert('Coordinates seem outside Edinburgh area. Please check.');
       return;
     }
 
     setOrderItems([...orderItems, {
       ...currentDelivery,
-      toLat: toPoint.lat,
-      toLng: toPoint.lng,
-      capacity: parseInt(currentDelivery.capacity),
+      toLat: lat,
+      toLng: lng,
       id: Date.now()
     }]);
 
     setCurrentDelivery({
       customerName: '',
-      toLocation: '',
+      locationName: '',
+      toLat: '',
+      toLng: '',
       requiresCooling: false,
       requiresHeating: false,
-      capacity: ''
+      capacity: 2.0
     });
   };
 
@@ -73,23 +113,38 @@ const DeliveryForm = () => {
 
   const dispatchOrder = async () => {
     if (orderItems.length === 0) {
-      alert('Please add at least one delivery to the order');
       return;
     }
 
-    setSubmitting(true);
+    const itemsToDispatch = [...orderItems];
+    const batchId = `ORDER-${orderCounter}`;
+    setOrderCounter(prev => prev + 1);
+    setOrderItems([]); // Clear immediately so user can add more
+
+    console.log(`📦 Dispatching batch ${batchId} with ${itemsToDispatch.length} deliveries`);
 
     try {
-      let successCount = 0;
-      let failedDeliveries = [];
-
-      for (const item of orderItems) {
+      // Try to dispatch as a batch first
+      await dispatchBatch(itemsToDispatch, batchId);
+      console.log(`✅ Batch ${batchId} dispatched successfully`);
+    } catch (error) {
+      console.error('❌ Batch dispatch failed, falling back to individual dispatches:', error);
+      
+      // Fallback: dispatch individually
+      for (let i = 0; i < itemsToDispatch.length; i++) {
+        const item = itemsToDispatch[i];
         try {
-          // Backend will determine which service point to use
-          // We just send destination coordinates and capabilities
+          console.log(`📦 Dispatching delivery ${i + 1}/${itemsToDispatch.length}:`, {
+            customer: item.customerName,
+            location: item.locationName || `${item.toLat}, ${item.toLng}`,
+            capacity: item.capacity,
+            cooling: item.requiresCooling,
+            heating: item.requiresHeating
+          });
+
           await dispatchDrone(
-            item.customerName,
-            item.toLng,  // Backend expects these parameters
+            `${item.customerName} (${batchId}-${i + 1})`,
+            item.toLng,
             item.toLat,
             item.toLng,
             item.toLat,
@@ -97,25 +152,15 @@ const DeliveryForm = () => {
             item.requiresHeating,
             item.capacity
           );
-          successCount++;
+
+          // Small delay between dispatches
+          if (i < itemsToDispatch.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
         } catch (error) {
-          console.error('Failed to dispatch:', error);
-          failedDeliveries.push(item.customerName);
+          console.error('❌ Failed to dispatch:', item.customerName, error);
         }
       }
-
-      if (failedDeliveries.length > 0) {
-        alert(`⚠️ ${failedDeliveries.length} delivery(s) could not be dispatched:\n${failedDeliveries.join(', ')}\n\nNo available drones with required capabilities.`);
-      }
-
-      if (successCount > 0) {
-        setOrderItems([]);
-      }
-    } catch (error) {
-      console.error('Error dispatching order:', error);
-      alert('Failed to dispatch order');
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -135,31 +180,60 @@ const DeliveryForm = () => {
       </div>
 
       <div className="form-group">
-        <label>Deliver To *</label>
+        <label>Location Preset (Optional)</label>
         <select
-          name="toLocation"
-          value={currentDelivery.toLocation}
-          onChange={handleInputChange}
+          value={currentDelivery.locationName}
+          onChange={handlePresetSelect}
         >
-          <option value="">Select delivery location...</option>
-          {DELIVERY_LOCATIONS.map((loc, idx) => (
-            <option key={idx} value={loc.name}>
-              {loc.name}
+          <option value="">-- Select preset or enter coordinates below --</option>
+          {DELIVERY_PRESETS.map((preset, idx) => (
+            <option key={idx} value={preset.name}>
+              {preset.name}
             </option>
           ))}
         </select>
       </div>
 
+      <div className="coordinate-grid">
+        <div className="form-group">
+          <label>Latitude *</label>
+          <input
+            type="number"
+            name="toLat"
+            value={currentDelivery.toLat}
+            onChange={handleInputChange}
+            placeholder="55.9445"
+            step="0.0001"
+          />
+        </div>
+        <div className="form-group">
+          <label>Longitude *</label>
+          <input
+            type="number"
+            name="toLng"
+            value={currentDelivery.toLng}
+            onChange={handleInputChange}
+            placeholder="-3.1892"
+            step="0.0001"
+          />
+        </div>
+      </div>
+
       <div className="form-group">
-        <label>Capacity (grams) *</label>
+        <label>Capacity: {currentDelivery.capacity.toFixed(1)} kg</label>
         <input
-          type="number"
+          type="range"
           name="capacity"
+          min="0.5"
+          max="20"
+          step="0.5"
           value={currentDelivery.capacity}
-          onChange={handleInputChange}
-          placeholder="e.g., 500"
-          min="1"
+          onChange={handleCapacityChange}
+          className="capacity-slider"
         />
+        <div className="capacity-helper">
+          Available drone capacities: 4kg, 8kg, 12kg, 20kg
+        </div>
       </div>
 
       <div className="form-group-inline">
@@ -170,7 +244,7 @@ const DeliveryForm = () => {
             checked={currentDelivery.requiresCooling}
             onChange={handleInputChange}
           />
-          <span>Requires Cooling</span>
+          <span>❄️ Requires Cooling</span>
         </label>
 
         <label className="checkbox-label">
@@ -180,7 +254,7 @@ const DeliveryForm = () => {
             checked={currentDelivery.requiresHeating}
             onChange={handleInputChange}
           />
-          <span>Requires Heating</span>
+          <span>🔥 Requires Heating</span>
         </label>
       </div>
 
@@ -197,10 +271,10 @@ const DeliveryForm = () => {
                 <div className="order-item-info">
                   <strong>{item.customerName}</strong>
                   <div className="order-item-details">
-                    📍 {item.toLocation}
+                    📍 {item.locationName || `${item.toLat.toFixed(4)}, ${item.toLng.toFixed(4)}`}
                   </div>
                   <div className="order-item-meta">
-                    {item.capacity}g
+                    {item.capacity.toFixed(1)}kg
                     {item.requiresCooling && ' • ❄️ Cooling'}
                     {item.requiresHeating && ' • 🔥 Heating'}
                   </div>
@@ -217,9 +291,9 @@ const DeliveryForm = () => {
       <button
         className="btn btn-dispatch"
         onClick={dispatchOrder}
-        disabled={orderItems.length === 0 || submitting}
+        disabled={orderItems.length === 0}
       >
-        {submitting ? 'Dispatching...' : `Dispatch Order (${orderItems.length})`}
+        Dispatch Order ({orderItems.length})
       </button>
     </div>
   );
