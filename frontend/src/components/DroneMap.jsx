@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './DroneMap.css';
+import { getRestrictedAreas } from '../utils/api';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -65,8 +66,25 @@ function MapUpdater({ drones }) {
 const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
   const edinburghCenter = [55.9445, -3.1892];
   const defaultZoom = 13;
+  const [restrictedAreas, setRestrictedAreas] = useState([]);
 
   const droneIds = Object.keys(activeDrones);
+
+  // Fetch restricted areas on mount
+  useEffect(() => {
+    const fetchAreas = async () => {
+      try {
+        console.log('🚫 Fetching restricted areas...');
+        const areas = await getRestrictedAreas();
+        console.log('✅ Fetched', areas.length, 'restricted areas');
+        setRestrictedAreas(areas);
+      } catch (error) {
+        console.error('❌ Error fetching restricted areas:', error);
+      }
+    };
+
+    fetchAreas();
+  }, []);
 
   console.log('🗺️ DroneMap rendering with', droneIds.length, 'drones');
 
@@ -84,6 +102,47 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
 
         <MapUpdater drones={activeDrones} />
 
+        {/* Render Restricted Areas */}
+        {restrictedAreas.map((area, index) => {
+          if (!area.vertices || area.vertices.length === 0) {
+            return null;
+          }
+
+          // Convert vertices to Leaflet format: [lat, lng]
+          const positions = area.vertices.map(v => [v.lat, v.lng]);
+
+          return (
+            <Polygon
+              key={index}
+              positions={positions}
+              pathOptions={{
+                color: '#ef4444',        // Red border
+                fillColor: '#fee2e2',    // Light red fill
+                fillOpacity: 0.3,
+                weight: 2,
+                dashArray: '5, 5'        // Dashed line
+              }}
+            >
+              <Popup>
+                <div style={{ minWidth: '150px' }}>
+                  <h4 style={{ margin: '0 0 8px 0', fontWeight: 600, color: '#ef4444' }}>
+                    🚫 {area.name}
+                  </h4>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Restricted Airspace
+                  </div>
+                  {area.limits && (
+                    <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+                      Altitude: {area.limits.lower}m - {area.limits.upper}m
+                    </div>
+                  )}
+                </div>
+              </Popup>
+            </Polygon>
+          );
+        })}
+
+        {/* Render Drones */}
         {Object.entries(activeDrones).map(([droneId, drone]) => {
           if (!drone.currentPosition) {
             console.warn('Drone', droneId, 'has no position');
@@ -134,6 +193,11 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
             <div className="map-icon">🗺️</div>
             <h3>No Active Drones</h3>
             <p>Dispatch a delivery to see drones on the map</p>
+            {restrictedAreas.length > 0 && (
+              <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
+                🚫 {restrictedAreas.length} restricted areas shown in red
+              </p>
+            )}
           </div>
         </div>
       )}

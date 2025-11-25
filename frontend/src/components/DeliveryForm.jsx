@@ -26,11 +26,8 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (availableDrones === 0) {
-      toast.error('❌ No drones available!');
-      return;
-    }
-
+    // REMOVED: availableDrones check - allow dispatching even when some drones are busy
+    
     setSubmitting(true);
 
     try {
@@ -70,11 +67,11 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
       <div 
         className="available-badge" 
         style={{
-          backgroundColor: availableDrones > 0 ? '#10b981' : '#ef4444',
+          backgroundColor: availableDrones > 0 ? '#10b981' : '#f59e0b',
           color: 'white'
         }}
       >
-        Available: {availableDrones}
+        {availableDrones > 0 ? `✅ ${availableDrones} Available` : '⏳ All Drones Busy'}
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -168,14 +165,22 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
         <button
           type="submit"
           className="submit-button"
-          disabled={submitting || availableDrones === 0}
+          disabled={submitting}
         >
           {submitting ? '⏳ Dispatching...' : '🚁 Dispatch Drone'}
         </button>
 
-        {availableDrones === 0 && (
-          <div className="warning-message">
-            ⚠️ All drones are currently busy. Please wait...
+        {availableDrones === 0 && !submitting && (
+          <div className="info-message" style={{
+            marginTop: '12px',
+            padding: '12px',
+            background: '#fef3c7',
+            color: '#92400e',
+            borderRadius: '6px',
+            fontSize: '13px',
+            textAlign: 'center'
+          }}>
+            ℹ️ All drones busy. Delivery will queue until a drone is available.
           </div>
         )}
       </form>
