@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap } from 'react-l
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './DroneMap.css';
-import { getRestrictedAreas } from '../utils/api';
+import { getRestrictedAreas, getServicePoints } from '../utils/api';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -37,6 +37,30 @@ const createDroneIcon = (color, isSelected) => {
   });
 };
 
+const createServicePointIcon = () => {
+  return L.divIcon({
+    className: 'custom-service-icon',
+    html: `
+      <div style="
+        background: #10b981;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid white;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+      ">
+        🏥
+      </div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+};
+
 const DRONE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 const getDroneColor = (droneId, droneList) => {
@@ -67,6 +91,9 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
   const edinburghCenter = [55.9445, -3.1892];
   const defaultZoom = 13;
   const [restrictedAreas, setRestrictedAreas] = useState([]);
+  const [servicePoints, setServicePoints] = useState([]);
+  const [areasLoaded, setAreasLoaded] = useState(false);
+  const [servicePointsLoaded, setServicePointsLoaded] = useState(false);
 
   const droneIds = Object.keys(activeDrones);
 
@@ -76,17 +103,59 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
       try {
         console.log('🚫 Fetching restricted areas...');
         const areas = await getRestrictedAreas();
-        console.log('✅ Fetched', areas.length, 'restricted areas');
-        setRestrictedAreas(areas);
+        console.log('✅ Fetched restricted areas:', areas);
+        
+        if (areas && Array.isArray(areas)) {
+          setRestrictedAreas(areas);
+          console.log('✅ Set', areas.length, 'restricted areas in state');
+        } else {
+          console.warn('⚠️ Invalid restricted areas data:', areas);
+          setRestrictedAreas([]);
+        }
+        setAreasLoaded(true);
       } catch (error) {
         console.error('❌ Error fetching restricted areas:', error);
+        setRestrictedAreas([]);
+        setAreasLoaded(true);
       }
     };
 
     fetchAreas();
   }, []);
 
-  console.log('🗺️ DroneMap rendering with', droneIds.length, 'drones');
+  // Fetch service points on mount
+  useEffect(() => {
+    const fetchServicePoints = async () => {
+      try {
+        console.log('🏥 Fetching service points...');
+        const points = await getServicePoints();
+        console.log('✅ Fetched service points:', points);
+        
+        if (points && Array.isArray(points)) {
+          setServicePoints(points);
+          console.log('✅ Set', points.length, 'service points in state');
+        } else {
+          console.warn('⚠️ Invalid service points data:', points);
+          setServicePoints([]);
+        }
+        setServicePointsLoaded(true);
+      } catch (error) {
+        console.error('❌ Error fetching service points:', error);
+        setServicePoints([]);
+        setServicePointsLoaded(true);
+      }
+    };
+
+    fetchServicePoints();
+  }, []);
+
+  console.log('🗺️ DroneMap rendering:', {
+    drones: droneIds.length,
+    restrictedAreas: restrictedAreas.length,
+    servicePoints: servicePoints.length,
+    areasLoaded,
+    servicePointsLoaded
+  });
 
   return (
     <div className="drone-map">
@@ -103,17 +172,20 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
         <MapUpdater drones={activeDrones} />
 
         {/* Render Restricted Areas */}
-        {restrictedAreas.map((area, index) => {
+        {areasLoaded && restrictedAreas.length > 0 && restrictedAreas.map((area, index) => {
           if (!area.vertices || area.vertices.length === 0) {
+            console.warn('⚠️ Area has no vertices:', area);
             return null;
           }
 
           // Convert vertices to Leaflet format: [lat, lng]
           const positions = area.vertices.map(v => [v.lat, v.lng]);
 
+          console.log(`🚫 Rendering restricted area ${index}:`, area.name, positions.length, 'vertices');
+
           return (
             <Polygon
-              key={index}
+              key={`restricted-${index}`}
               positions={positions}
               pathOptions={{
                 color: '#ef4444',        // Red border
@@ -142,10 +214,48 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
           );
         })}
 
+        {/* Render Service Points */}
+        {servicePointsLoaded && servicePoints.length > 0 && servicePoints.map((point, index) => {
+          if (!point.location) {
+            console.warn('⚠️ Service point has no location:', point);
+            return null;
+          }
+
+          const position = [point.location.lat, point.location.lng];
+          console.log(`🏥 Rendering service point ${index}:`, point.name, position);
+
+          return (
+            <Marker
+              key={`service-${index}`}
+              position={position}
+              icon={createServicePointIcon()}
+            >
+              <Popup>
+                <div style={{ minWidth: '150px' }}>
+                  <h4 style={{ margin: '0 0 8px 0', fontWeight: 600, color: '#10b981' }}>
+                    🏥 {point.name}
+                  </h4>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Service Point #{point.id}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px', fontFamily: 'monospace' }}>
+                    {point.location.lat.toFixed(6)}, {point.location.lng.toFixed(6)}
+                  </div>
+                  {point.location.alt !== undefined && (
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+                      Altitude: {point.location.alt}m
+                    </div>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+
         {/* Render Drones */}
         {Object.entries(activeDrones).map(([droneId, drone]) => {
           if (!drone.currentPosition) {
-            console.warn('Drone', droneId, 'has no position');
+            console.warn('⚠️ Drone', droneId, 'has no position');
             return null;
           }
 
@@ -155,7 +265,7 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
 
           return (
             <Marker
-              key={droneId}
+              key={`drone-${droneId}`}
               position={[latitude, longitude]}
               icon={createDroneIcon(isSelected ? '#ef4444' : color, isSelected)}
             >
@@ -193,9 +303,18 @@ const DroneMap = ({ activeDrones = {}, selectedDroneId }) => {
             <div className="map-icon">🗺️</div>
             <h3>No Active Drones</h3>
             <p>Dispatch a delivery to see drones on the map</p>
-            {restrictedAreas.length > 0 && (
+            {areasLoaded && (
               <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
-                🚫 {restrictedAreas.length} restricted areas shown in red
+                {restrictedAreas.length > 0 
+                  ? `🚫 ${restrictedAreas.length} restricted areas shown` 
+                  : '⚠️ No restricted areas loaded'}
+              </p>
+            )}
+            {servicePointsLoaded && (
+              <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                {servicePoints.length > 0 
+                  ? `🏥 ${servicePoints.length} service points shown` 
+                  : '⚠️ No service points loaded'}
               </p>
             )}
           </div>

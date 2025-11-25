@@ -26,8 +26,6 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // REMOVED: availableDrones check - allow dispatching even when some drones are busy
-    
     setSubmitting(true);
 
     try {
@@ -56,7 +54,10 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
       console.error('❌ Error submitting delivery:', error);
       toast.error(`❌ Failed: ${error.message}`);
     } finally {
-      setSubmitting(false);
+      // Allow button to be clicked again after a short delay
+      setTimeout(() => {
+        setSubmitting(false);
+      }, 500);
     }
   };
 
@@ -165,12 +166,11 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
         <button
           type="submit"
           className="submit-button"
-          disabled={submitting}
         >
           {submitting ? '⏳ Dispatching...' : '🚁 Dispatch Drone'}
         </button>
 
-        {availableDrones === 0 && !submitting && (
+        {availableDrones === 0 && (
           <div className="info-message" style={{
             marginTop: '12px',
             padding: '12px',
@@ -180,7 +180,7 @@ const DeliveryForm = ({ availableDrones = 0, onDeliverySubmitted }) => {
             fontSize: '13px',
             textAlign: 'center'
           }}>
-            ℹ️ All drones busy. Delivery will queue until a drone is available.
+            ℹ️ All drones busy. Next available drone will be dispatched.
           </div>
         )}
       </form>

@@ -38,14 +38,43 @@ export const getAvailableDrones = async () => {
 };
 
 export const getRestrictedAreas = async () => {
-  // Fetch directly from ILP service
-  const response = await fetch(`${ILP_BASE}/restricted-areas`);
+  console.log('📡 Fetching restricted areas from:', `${ILP_BASE}/restricted-areas`);
   
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+  try {
+    const response = await fetch(`${ILP_BASE}/restricted-areas`);
+    
+    if (!response.ok) {
+      console.error('❌ Failed to fetch restricted areas:', response.status, response.statusText);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('✅ Restricted areas response:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ Error in getRestrictedAreas:', error);
+    throw error;
   }
+};
+
+export const getServicePoints = async () => {
+  console.log('📡 Fetching service points from:', `${ILP_BASE}/service-points`);
   
-  return response.json();
+  try {
+    const response = await fetch(`${ILP_BASE}/service-points`);
+    
+    if (!response.ok) {
+      console.error('❌ Failed to fetch service points:', response.status, response.statusText);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('✅ Service points response:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ Error in getServicePoints:', error);
+    throw error;
+  }
 };
 
 // Legacy endpoint - kept for backwards compatibility

@@ -22,9 +22,9 @@ public class DroneDispatchService {
     private final ServicePointService servicePointService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    // Track active drones and their states
-    private final Map<String, ActiveDroneState> activeDrones = new ConcurrentHashMap<>();
-    private final AtomicInteger deliveryIdCounter = new AtomicInteger(1000);
+    // Track active drones and their states - STATIC to survive service recreations
+    private static final Map<String, ActiveDroneState> activeDrones = new ConcurrentHashMap<>();
+    private static final AtomicInteger deliveryIdCounter = new AtomicInteger(1000);
 
     public DroneDispatchService(DeliveryPlannerService plannerService,
                                 DroneService droneService,
@@ -35,10 +35,7 @@ public class DroneDispatchService {
         this.servicePointService = servicePointService;
         this.messagingTemplate = messagingTemplate;
 
-        // CRITICAL FIX: Clear any stale state from previous sessions
-        logger.info("🚁 DroneDispatchService initializing - clearing stale state");
-        activeDrones.clear();
-        logger.info("✅ DroneDispatchService ready - activeDrones map cleared (size: {})", activeDrones.size());
+        logger.info("🚁 DroneDispatchService initialized - {} active drones", activeDrones.size());
     }
 
     /**
@@ -55,36 +52,21 @@ public class DroneDispatchService {
         // Create dispatch record
         MedDispatchRec dispatch = new MedDispatchRec(
                 deliveryId,
-                "2025-01-01", // Dummy date (ignoring for now)
-                "12:00",      // Dummy time (ignoring for now)
+                "2025-01-01", // Dummy date
+                "12:00",      // Dummy time
                 new Requirements(request.getCapacity(), request.isCooling(),
                         request.isHeating(), null),
                 new Position(request.getLongitude(), request.getLatitude())
         );
 
-        // Find available drones based ONLY on capacity/cooling/heating (ignore date/time)
+        // Find available drones
         List<Drone> allDrones = droneService.fetchAllDrones();
         Requirements reqs = dispatch.getRequirements();
 
-        logger.info("🔍 Fetched {} drones from ILP service", allDrones.size());
+        logger.info("🔍 Fetched {} drones, {} currently active",
+                allDrones.size(), activeDrones.size());
         logger.info("📋 Requirements: capacity={} kg, cooling={}, heating={}",
                 reqs.getCapacity(), reqs.isCooling(), reqs.isHeating());
-        logger.info("🔒 Currently active drones: {}", activeDrones.keySet());
-
-        // Log all drones for debugging
-        for (Drone drone : allDrones) {
-            Capability cap = drone.getCapability();
-            if (cap != null) {
-                logger.info("  Drone {}: capacity={} kg, cooling={}, heating={}, busy={}",
-                        drone.getId(),
-                        cap.getCapacity(),
-                        cap.isCooling(),
-                        cap.isHeating(),
-                        activeDrones.containsKey(drone.getId()));
-            } else {
-                logger.warn("  Drone {}: NULL CAPABILITY", drone.getId());
-            }
-        }
 
         List<String> availableDroneIds = allDrones.stream()
                 .filter(drone -> {
@@ -92,37 +74,37 @@ public class DroneDispatchService {
 
                     // Skip if currently busy
                     if (activeDrones.containsKey(droneId)) {
-                        logger.info("  ❌ Drone {} is currently busy", droneId);
+                        logger.debug("  ❌ Drone {} is currently busy", droneId);
                         return false;
                     }
 
                     // Check capability
                     Capability cap = drone.getCapability();
                     if (cap == null) {
-                        logger.info("  ❌ Drone {} has null capability", droneId);
+                        logger.debug("  ❌ Drone {} has null capability", droneId);
                         return false;
                     }
 
                     // Check capacity (with tolerance)
                     if (cap.getCapacity() < reqs.getCapacity() - 0.01) {
-                        logger.info("  ❌ Drone {} capacity {} kg < required {} kg",
+                        logger.debug("  ❌ Drone {} capacity {} kg < required {} kg",
                                 droneId, cap.getCapacity(), reqs.getCapacity());
                         return false;
                     }
 
                     // Check cooling
                     if (reqs.isCooling() && !cap.isCooling()) {
-                        logger.info("  ❌ Drone {} missing cooling capability", droneId);
+                        logger.debug("  ❌ Drone {} missing cooling capability", droneId);
                         return false;
                     }
 
                     // Check heating
                     if (reqs.isHeating() && !cap.isHeating()) {
-                        logger.info("  ❌ Drone {} missing heating capability", droneId);
+                        logger.debug("  ❌ Drone {} missing heating capability", droneId);
                         return false;
                     }
 
-                    logger.info("  ✅ Drone {} matches all requirements!", droneId);
+                    logger.debug("  ✅ Drone {} matches all requirements!", droneId);
                     return true;
                 })
                 .map(Drone::getId)
@@ -130,34 +112,24 @@ public class DroneDispatchService {
 
         if (availableDroneIds.isEmpty()) {
             logger.error("❌ No available drones for delivery {}", deliveryId);
-            logger.error("Required: capacity={} kg, cooling={}, heating={}",
-                    reqs.getCapacity(), reqs.isCooling(), reqs.isHeating());
-            logger.error("Active drones: {}", activeDrones.keySet());
-            logger.error("Total drones fetched: {}", allDrones.size());
 
-            // Build detailed error message
             String errorMsg;
             if (allDrones.isEmpty()) {
-                errorMsg = "ERROR: No drones fetched from ILP service. Check backend connection to ILP REST API.";
+                errorMsg = "ERROR: No drones available from ILP service.";
             } else {
-                errorMsg = String.format("No drones match requirements (need %.1f kg, cooling=%s, heating=%s). Check console logs.",
+                errorMsg = String.format("No drones match requirements (need %.1f kg, cooling=%s, heating=%s).",
                         reqs.getCapacity(), reqs.isCooling(), reqs.isHeating());
             }
 
-            return new DeliverySubmissionResult(
-                    false,
-                    deliveryId,
-                    null,
-                    errorMsg
-            );
+            return new DeliverySubmissionResult(false, deliveryId, null, errorMsg);
         }
 
         logger.info("✅ Found {} available drones: {}", availableDroneIds.size(), availableDroneIds);
 
-        // Select best drone (closest to delivery location)
+        // Select best drone
         List<ServicePoint> servicePoints = servicePointService.fetchAllServicePoints();
         Position base = servicePoints.isEmpty() ?
-                new Position(-3.1892, 55.9445) :  // Default Edinburgh coordinates
+                new Position(-3.1892, 55.9445) :
                 new Position(servicePoints.get(0).getLocation().getLng(),
                         servicePoints.get(0).getLocation().getLat());
 
@@ -224,7 +196,7 @@ public class DroneDispatchService {
 
         logger.info("✈️ Drone {} starting flight with {} waypoints", droneId, flightPath.size());
 
-        // Simulate flight (one position every 300ms)
+        // Simulate flight
         try {
             for (int i = 0; i < flightPath.size(); i++) {
                 if (!activeDrones.containsKey(droneId)) {
@@ -248,7 +220,7 @@ public class DroneDispatchService {
                 // Broadcast position update
                 broadcastDroneUpdate(state);
 
-                Thread.sleep(100); // 300ms per step for smooth animation
+                Thread.sleep(100);
             }
 
             // Mission complete
@@ -256,7 +228,6 @@ public class DroneDispatchService {
             state.setStatus("COMPLETED");
             broadcastDroneUpdate(state);
 
-            // Brief pause, then remove from active list
             Thread.sleep(2000);
             activeDrones.remove(droneId);
             broadcastSystemState();
@@ -270,9 +241,6 @@ public class DroneDispatchService {
         }
     }
 
-    /**
-     * Select best drone based on distance to delivery
-     */
     private Drone selectBestDrone(List<String> availableIds, List<Drone> allDrones,
                                   Position deliveryLocation, Position base) {
         Drone bestDrone = null;
@@ -286,10 +254,7 @@ public class DroneDispatchService {
 
             if (drone == null) continue;
 
-            // Simple scoring: distance from base to delivery
             double distance = calculateDistance(base, deliveryLocation);
-
-            // Prefer drones with more capacity (tie-breaker)
             double capacityBonus = drone.getCapability().getCapacity() * 0.0001;
             double score = distance - capacityBonus;
 
@@ -307,8 +272,6 @@ public class DroneDispatchService {
         double dy = a.getLat() - b.getLat();
         return Math.sqrt(dx * dx + dy * dy);
     }
-
-    // ========== WebSocket Broadcast Methods ==========
 
     private void broadcastDroneUpdate(ActiveDroneState state) {
         DroneUpdate update = new DroneUpdate();
@@ -364,8 +327,7 @@ public class DroneDispatchService {
         return new HashMap<>(activeDrones);
     }
 
-    // ========== Inner Classes ==========
-
+    // Inner classes remain the same...
     public static class ActiveDroneState {
         private final String droneId;
         private final int deliveryId;
@@ -389,7 +351,6 @@ public class DroneDispatchService {
             this.status = "DEPLOYING";
         }
 
-        // Getters and setters
         public String getDroneId() { return droneId; }
         public int getDeliveryId() { return deliveryId; }
         public List<LngLat> getFlightPath() { return flightPath; }
@@ -402,8 +363,6 @@ public class DroneDispatchService {
         public double getTotalCapacity() { return totalCapacity; }
         public double getCapacityUsed() { return capacityUsed; }
     }
-
-    // ========== DTOs ==========
 
     public static class DeliveryRequest {
         private double latitude;
@@ -454,7 +413,6 @@ public class DroneDispatchService {
         private double capacityUsed;
         private double totalCapacity;
 
-        // Getters and setters
         public String getDroneId() { return droneId; }
         public void setDroneId(String id) { this.droneId = id; }
         public int getDeliveryId() { return deliveryId; }
