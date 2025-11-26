@@ -73,9 +73,9 @@ export default function useWebSocket() {
                   longitude: droneUpdate.longitude,
                   progress: (droneUpdate.progress || 0) * 100,
                   battery: 100 - ((droneUpdate.progress || 0) * 100),
-                  deliveryLatitude: droneUpdate.latitude,
-                  deliveryLongitude: droneUpdate.longitude,
-                  route: null,
+                  route: droneUpdate.route || null, // Full flight path
+                  deliveryLatitude: droneUpdate.deliveryLatitude || null,
+                  deliveryLongitude: droneUpdate.deliveryLongitude || null,
                   // Batch tracking
                   batchId: droneUpdate.batchId,
                   currentDeliveryInBatch: droneUpdate.currentDeliveryInBatch,

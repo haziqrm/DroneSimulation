@@ -603,7 +603,49 @@ public class DroneDispatchService {
         update.setCurrentDeliveryInBatch(state.getCurrentDeliveryIndex() + 1);
         update.setTotalDeliveriesInBatch(state.getTotalDeliveriesInBatch());
 
+        // Include full route on first update
+        if (state.getStepIndex() == 0) {
+            List<List<Double>> route = state.getFlightPath().stream()
+                    .map(point -> List.of(point.getLat(), point.getLng()))
+                    .toList();
+            update.setRoute(route);
+            
+            // Find delivery point (hover point - where two consecutive points are the same)
+            LngLat deliveryPoint = findDeliveryPoint(state.getFlightPath());
+            if (deliveryPoint != null) {
+                update.setDeliveryLatitude(deliveryPoint.getLat());
+                update.setDeliveryLongitude(deliveryPoint.getLng());
+                logger.info("🎯 Batch: Sending delivery coords for drone {}: ({}, {})", 
+                    state.getDroneId(), deliveryPoint.getLat(), deliveryPoint.getLng());
+            } else {
+                logger.error("❌ Batch: No delivery point found for drone {}", state.getDroneId());
+            }
+        }
+
         messagingTemplate.convertAndSend("/topic/drone-updates", update);
+    }
+    
+    private LngLat findDeliveryPoint(List<LngLat> flightPath) {
+        // Find hover point (two consecutive identical points)
+        for (int i = 0; i < flightPath.size() - 1; i++) {
+            LngLat curr = flightPath.get(i);
+            LngLat next = flightPath.get(i + 1);
+            double latDiff = Math.abs(curr.getLat() - next.getLat());
+            double lngDiff = Math.abs(curr.getLng() - next.getLng());
+            
+            // Hover threshold - must be within 0.00015 degrees (same as ILP close distance)
+            if (latDiff < 0.00015 && lngDiff < 0.00015) {
+                logger.info("✅ Found hover point at index {}: ({}, {})", i, curr.getLat(), curr.getLng());
+                return curr;
+            }
+        }
+        
+        // If no hover found, use point about 40% through the path (before return journey)
+        int deliveryIndex = Math.max(0, Math.min(flightPath.size() - 1, (flightPath.size() * 2) / 5));
+        LngLat fallbackPoint = flightPath.get(deliveryIndex);
+        logger.warn("⚠️ No hover point found in path of {} points, using fallback index {}: ({}, {})", 
+            flightPath.size(), deliveryIndex, fallbackPoint.getLat(), fallbackPoint.getLng());
+        return fallbackPoint;
     }
 
     private void broadcastSingleUpdate(ActiveDroneState state) {
@@ -616,6 +658,25 @@ public class DroneDispatchService {
         update.setProgress((double) state.getStepIndex() / state.getFlightPath().size());
         update.setCapacityUsed(state.getCapacityUsed());
         update.setTotalCapacity(state.getTotalCapacity());
+
+        // Include full route on first update
+        if (state.getStepIndex() == 0) {
+            List<List<Double>> route = state.getFlightPath().stream()
+                    .map(point -> List.of(point.getLat(), point.getLng()))
+                    .toList();
+            update.setRoute(route);
+            
+            // Find delivery point (hover point - where two consecutive points are the same)
+            LngLat deliveryPoint = findDeliveryPoint(state.getFlightPath());
+            if (deliveryPoint != null) {
+                update.setDeliveryLatitude(deliveryPoint.getLat());
+                update.setDeliveryLongitude(deliveryPoint.getLng());
+                logger.info("🎯 Single: Sending delivery coords for drone {}: ({}, {})", 
+                    state.getDroneId(), deliveryPoint.getLat(), deliveryPoint.getLng());
+            } else {
+                logger.error("❌ Single: No delivery point found for drone {}", state.getDroneId());
+            }
+        }
 
         messagingTemplate.convertAndSend("/topic/drone-updates", update);
     }
@@ -787,6 +848,9 @@ public class DroneDispatchService {
         private String batchId;
         private Integer currentDeliveryInBatch;
         private Integer totalDeliveriesInBatch;
+        private List<List<Double>> route; // Full flight path
+        private Double deliveryLatitude;
+        private Double deliveryLongitude;
 
         public String getDroneId() { return droneId; }
         public void setDroneId(String id) { this.droneId = id; }
@@ -810,6 +874,12 @@ public class DroneDispatchService {
         public void setCurrentDeliveryInBatch(Integer n) { this.currentDeliveryInBatch = n; }
         public Integer getTotalDeliveriesInBatch() { return totalDeliveriesInBatch; }
         public void setTotalDeliveriesInBatch(Integer n) { this.totalDeliveriesInBatch = n; }
+        public List<List<Double>> getRoute() { return route; }
+        public void setRoute(List<List<Double>> route) { this.route = route; }
+        public Double getDeliveryLatitude() { return deliveryLatitude; }
+        public void setDeliveryLatitude(Double lat) { this.deliveryLatitude = lat; }
+        public Double getDeliveryLongitude() { return deliveryLongitude; }
+        public void setDeliveryLongitude(Double lng) { this.deliveryLongitude = lng; }
     }
 
     public static class SystemStateUpdate {
