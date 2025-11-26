@@ -7,7 +7,7 @@ const DroneMap = ({ drones }) => {
   const [restrictedAreas, setRestrictedAreas] = useState([]);
   const [servicePoints, setServicePoints] = useState([]);
   const [flightPaths, setFlightPaths] = useState({});
-  const [deliveryPoints, setDeliveryPoints] = useState({});
+  const [deliveryMarkers, setDeliveryMarkers] = useState({});  // Changed to store ALL markers per drone
   const [completedPaths, setCompletedPaths] = useState({});
 
   const center = [55.9445, -3.1892];
@@ -31,7 +31,7 @@ const DroneMap = ({ drones }) => {
     fetchRestrictedAreas();
   }, []);
 
-  // Fetch service points from backend (to avoid CORS) - CRITICAL: Must load on mount
+  // Fetch service points from backend (to avoid CORS)
   useEffect(() => {
     const fetchServicePoints = async () => {
       try {
@@ -48,21 +48,13 @@ const DroneMap = ({ drones }) => {
       }
     };
     fetchServicePoints();
-  }, []); // Empty deps = run once on mount
+  }, []);
 
-  // Update flight paths and delivery points when drones update
+  // Update flight paths and delivery markers when drones update
   useEffect(() => {
     console.log('🔄 Drone update - Processing', drones.length, 'drones');
     
     drones.forEach(drone => {
-      console.log(`🔍 Drone ${drone.droneId} check:`, {
-        hasDeliveryLat: !!drone.deliveryLatitude,
-        hasDeliveryLng: !!drone.deliveryLongitude,
-        deliveryLat: drone.deliveryLatitude,
-        deliveryLng: drone.deliveryLongitude,
-        inState: !!deliveryPoints[drone.droneId]
-      });
-      
       // Store full route on first update
       if (drone.route && !flightPaths[drone.droneId]) {
         console.log(`📍 Storing route for drone ${drone.droneId}: ${drone.route.length} waypoints`);
@@ -72,38 +64,35 @@ const DroneMap = ({ drones }) => {
         }));
       }
 
-      // Store delivery destination
-      if (drone.deliveryLatitude && drone.deliveryLongitude) {
-        if (!deliveryPoints[drone.droneId]) {
-          console.log(`🎯 CREATING NEW delivery marker for ${drone.droneId} at [${drone.deliveryLatitude}, ${drone.deliveryLongitude}]`);
-          
-          setDeliveryPoints(prev => ({
-            ...prev,
-            [drone.droneId]: {
-              position: [drone.deliveryLatitude, drone.deliveryLongitude],
-              deliveryId: drone.deliveryId,
-              droneId: drone.droneId,
-              completed: false
-            }
-          }));
-        } else if (drone.status === 'COMPLETED' && !deliveryPoints[drone.droneId].completed) {
-          console.log(`✅ Marking delivery ${drone.droneId} as COMPLETED`);
-          setDeliveryPoints(prev => ({
-            ...prev,
-            [drone.droneId]: {
-              ...prev[drone.droneId],
-              completed: true
-            }
-          }));
-        }
-      } else {
-        console.warn(`❌ Drone ${drone.droneId} MISSING delivery coordinates - no marker will appear!`);
+      // CRITICAL FIX: Use allDeliveryDestinations from backend instead of trying to extract from path
+      if (drone.allDeliveryDestinations && drone.allDeliveryDestinations.length > 0) {
+        console.log(`🎯 Drone ${drone.droneId} has ${drone.allDeliveryDestinations.length} delivery destinations:`, 
+                drone.allDeliveryDestinations);
+        
+        // Create markers for ALL destinations
+        const markers = drone.allDeliveryDestinations.map((dest, idx) => ({
+          position: [dest[0], dest[1]],  // [lat, lng] format from backend
+          deliveryId: drone.deliveryId !== -1 ? drone.deliveryId : `${drone.droneId}-${idx}`,
+          droneId: drone.droneId,
+          batchId: drone.batchId,
+          index: idx,
+          total: drone.allDeliveryDestinations.length,
+          completed: drone.status === 'COMPLETED' || 
+                     (drone.currentDeliveryInBatch && idx < drone.currentDeliveryInBatch - 1)
+        }));
+        
+        setDeliveryMarkers(prev => ({
+          ...prev,
+          [drone.droneId]: markers
+        }));
+        
+        console.log(`✅ Created ${markers.length} delivery markers for drone ${drone.droneId}`);
       }
     });
     
     console.log(`📊 DELIVERY MARKERS IN STATE:`, {
-      count: Object.keys(deliveryPoints).length,
-      markers: deliveryPoints
+      count: Object.keys(deliveryMarkers).length,
+      markers: deliveryMarkers
     });
 
     // Clean up completed drones
@@ -124,7 +113,7 @@ const DroneMap = ({ drones }) => {
             delete updated[droneId];
             return updated;
           });
-          setDeliveryPoints(prev => {
+          setDeliveryMarkers(prev => {
             const updated = { ...prev };
             delete updated[droneId];
             return updated;
@@ -132,17 +121,7 @@ const DroneMap = ({ drones }) => {
         }, 3000);
       }
     });
-  }, [drones, flightPaths, deliveryPoints]);
-
-  // Log current state for debugging
-  useEffect(() => {
-    console.log('📊 MAP STATE:', {
-      servicePoints: servicePoints.length,
-      deliveryPoints: Object.keys(deliveryPoints).length,
-      activeDrones: drones.length,
-      flightPaths: Object.keys(flightPaths).length
-    });
-  }, [servicePoints, deliveryPoints, drones, flightPaths]);
+  }, [drones, flightPaths]);
 
   const createDroneIcon = (droneId) => {
     return L.divIcon({
@@ -166,9 +145,10 @@ const DroneMap = ({ drones }) => {
     });
   };
 
-  const createDeliveryIcon = (completed) => {
+  const createDeliveryIcon = (completed, index, total) => {
     const color = completed ? '#27ae60' : '#e74c3c';
     const emoji = completed ? '✅' : '📍';
+    const label = total > 1 ? `${index + 1}` : '';
     
     return L.divIcon({
       html: `<div style="
@@ -183,7 +163,26 @@ const DroneMap = ({ drones }) => {
         font-size: 20px;
         border: 3px solid white;
         box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      ">${emoji}</div>`,
+        position: relative;
+      ">
+        ${emoji}
+        ${label ? `<div style="
+          position: absolute;
+          top: -8px;
+          right: -8px;
+          background: #2c3e50;
+          color: white;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+          font-weight: bold;
+          border: 2px solid white;
+        ">${label}</div>` : ''}
+      </div>`,
       className: '',
       iconSize: [40, 40],
       iconAnchor: [20, 20]
@@ -213,14 +212,10 @@ const DroneMap = ({ drones }) => {
 
   console.log('🗺️ RENDERING MAP with:', {
     servicePoints: servicePoints.length,
-    deliveryPoints: Object.keys(deliveryPoints).length,
+    deliveryMarkers: Object.keys(deliveryMarkers).length,
     restrictedAreas: restrictedAreas.length,
     drones: drones.length
   });
-
-  // Debug: Log what we're actually rendering
-  console.log('🏥 Service points to render:', servicePoints);
-  console.log('📍 Delivery points to render:', deliveryPoints);
 
   return (
     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
@@ -297,10 +292,9 @@ const DroneMap = ({ drones }) => {
           />
         ))}
 
-        {/* SERVICE POINTS - ALWAYS VISIBLE - PERMANENT MARKERS */}
+        {/* SERVICE POINTS - ALWAYS VISIBLE */}
         {servicePoints.map((point, index) => {
           if (!point || !point.location) {
-            console.warn('⚠️ Invalid service point:', point);
             return null;
           }
 
@@ -308,11 +302,8 @@ const DroneMap = ({ drones }) => {
           const lng = point.location.lng;
 
           if (typeof lat !== 'number' || typeof lng !== 'number') {
-            console.warn('⚠️ Invalid service point coords:', point);
             return null;
           }
-
-          console.log(`🏥 Rendering service point: ${point.name} at [${lat}, ${lng}]`);
 
           return (
             <Marker
@@ -332,27 +323,41 @@ const DroneMap = ({ drones }) => {
           );
         })}
 
-        {/* DELIVERY DESTINATION MARKERS - HIGH PRIORITY */}
-        {Object.entries(deliveryPoints).map(([droneId, point]) => {
-          console.log(`📍 Rendering delivery marker for drone ${droneId}:`, point);
+        {/* DELIVERY DESTINATION MARKERS - ALL DESTINATIONS */}
+        {Object.entries(deliveryMarkers).map(([droneId, markers]) => {
+          console.log(`📍 Rendering ${markers.length} markers for drone ${droneId}`);
           
-          return (
-            <Marker
-              key={`delivery-${droneId}`}
-              position={point.position}
-              icon={createDeliveryIcon(point.completed)}
-              zIndexOffset={5000}
-            >
-              <Popup>
-                <div style={{ textAlign: 'center' }}>
-                  <strong>{point.completed ? '✅ Delivered' : '📍 Delivery Point'}</strong><br/>
-                  <small>Delivery #{point.deliveryId}</small><br/>
-                  <small>Drone {point.droneId}</small><br/>
-                  <small>{point.position[0].toFixed(4)}, {point.position[1].toFixed(4)}</small>
-                </div>
-              </Popup>
-            </Marker>
-          );
+          return markers.map((marker, idx) => {
+            console.log(`   → Marker ${idx}: [${marker.position[0]}, ${marker.position[1]}], completed: ${marker.completed}`);
+            
+            return (
+              <Marker
+                key={`delivery-${droneId}-${idx}`}
+                position={marker.position}
+                icon={createDeliveryIcon(marker.completed, marker.index, marker.total)}
+                zIndexOffset={5000}
+              >
+                <Popup>
+                  <div style={{ textAlign: 'center' }}>
+                    <strong>{marker.completed ? '✅ Delivered' : '📍 Delivery Point'}</strong><br/>
+                    {marker.batchId && (
+                      <>
+                        <small>Batch: {marker.batchId}</small><br/>
+                        <small>Stop {marker.index + 1} of {marker.total}</small><br/>
+                      </>
+                    )}
+                    {!marker.batchId && (
+                      <>
+                        <small>Delivery #{marker.deliveryId}</small><br/>
+                      </>
+                    )}
+                    <small>Drone {marker.droneId}</small><br/>
+                    <small>{marker.position[0].toFixed(4)}, {marker.position[1].toFixed(4)}</small>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          });
         })}
 
         {/* Active Drones - ALWAYS ON TOP */}
@@ -404,7 +409,7 @@ const DroneMap = ({ drones }) => {
         </div>
       )}
       
-      {Object.keys(deliveryPoints).length === 0 && drones.length > 0 && (
+      {Object.keys(deliveryMarkers).length === 0 && drones.length > 0 && (
         <div style={{
           position: 'absolute',
           top: '50px',

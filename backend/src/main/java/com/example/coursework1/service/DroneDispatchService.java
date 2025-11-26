@@ -26,6 +26,8 @@ public class DroneDispatchService {
     private static final AtomicInteger deliveryIdCounter = new AtomicInteger(1000);
     private static final Map<String, BatchData> activeBatches = new ConcurrentHashMap<>();
 
+    private List<List<Double>> allDeliveryDestinations;
+
     public DroneDispatchService(DeliveryPlannerService plannerService,
                                 DroneService droneService,
                                 ServicePointService servicePointService,
@@ -37,6 +39,9 @@ public class DroneDispatchService {
 
         logger.info("🚁 DroneDispatchService initialized - {} active drones", activeDrones.size());
     }
+
+    public List<List<Double>> getAllDeliveryDestinations() { return allDeliveryDestinations; }
+    public void setAllDeliveryDestinations(List<List<Double>> dests) { this.allDeliveryDestinations = dests; }
 
     public Map<String, Object> submitBatch(BatchDeliveryRequest batchRequest) {
         logger.info("📦 Processing batch: {} with {} deliveries", 
@@ -67,17 +72,27 @@ public class DroneDispatchService {
             return response;
         }
 
-        // Convert all deliveries to MedDispatchRec (just like the GeoJSON endpoint)
+        // CRITICAL FIX: Store the actual delivery coordinates from frontend requests
+        List<Position> deliveryDestinations = new ArrayList<>();
         List<MedDispatchRec> allDispatches = new ArrayList<>();
+        
         for (DeliveryRequest delivery : batchRequest.getDeliveries()) {
             int deliveryId = deliveryIdCounter.getAndIncrement();
+            
+            // Store the ACTUAL destination from the frontend
+            Position actualDestination = new Position(delivery.getLongitude(), delivery.getLatitude());
+            deliveryDestinations.add(actualDestination);
+            
+            logger.info("📍 Batch delivery #{}: destination = ({}, {})", 
+                    deliveryId, delivery.getLatitude(), delivery.getLongitude());
+            
             MedDispatchRec dispatch = new MedDispatchRec(
                     deliveryId,
-                    "2025-11-11", // Use the same date as your test case or pass from frontend
-                    "10:00",      // Use the same time as your test case or pass from frontend
+                    "2025-11-11",
+                    "10:00",
                     new Requirements(delivery.getCapacity(), delivery.isCooling(),
                             delivery.isHeating(), null),
-                    new Position(delivery.getLongitude(), delivery.getLatitude())
+                    actualDestination
             );
             allDispatches.add(dispatch);
         }
@@ -123,12 +138,20 @@ public class DroneDispatchService {
                 continue;
             }
             
-            // Find the MedDispatchRec objects for this drone's deliveries FIRST
+            // Find the MedDispatchRec objects AND destinations for this drone's deliveries
             List<MedDispatchRec> droneDispatches = new ArrayList<>();
+            List<Position> droneDestinations = new ArrayList<>();
+            
             for (DeliveryResult dr : pathResult.getDeliveries()) {
-                for (MedDispatchRec rec : allDispatches) {
+                for (int i = 0; i < allDispatches.size(); i++) {
+                    MedDispatchRec rec = allDispatches.get(i);
                     if (rec.getId().equals(dr.getDeliveryId())) {
                         droneDispatches.add(rec);
+                        droneDestinations.add(deliveryDestinations.get(i));
+                        logger.info("✅ Drone {} delivery #{}: destination ({}, {})",
+                                drone.getId(), rec.getId(),
+                                deliveryDestinations.get(i).getLat(),
+                                deliveryDestinations.get(i).getLng());
                         break;
                     }
                 }
@@ -147,7 +170,7 @@ public class DroneDispatchService {
                 if (alternativeDrone != null) {
                     logger.info("✅ Found alternative: Drone {} will replace busy Drone {}", 
                             alternativeDrone.getId(), plannedDroneId);
-                    drone = alternativeDrone; // Use alternative instead
+                    drone = alternativeDrone;
                 } else {
                     logger.error("❌ No alternative drone available (planned: {})", plannedDroneId);
                     skippedDrones.add(plannedDroneId + " (busy, no alternatives available)");
@@ -165,14 +188,15 @@ public class DroneDispatchService {
                     drone.getCapability().getCapacity(),
                     0,
                     batchRequest.getBatchId(),
-                    droneDispatches.size()
+                    droneDispatches.size(),
+                    droneDestinations  // PASS THE ACTUAL DESTINATIONS
             );
             placeholderState.setStatus("PENDING");
             activeDrones.put(drone.getId(), placeholderState);
             logger.info("🔒 Drone {} marked as unavailable for batch {}", drone.getId(), batchRequest.getBatchId());
             
-            // Use the planned order and path
-            startBatchMission(drone, droneDispatches, base, batchRequest.getBatchId());
+            // Use the planned order and path with ACTUAL destinations
+            startBatchMission(drone, droneDispatches, base, batchRequest.getBatchId(), droneDestinations);
             dispatchedDrones++;
         }
 
@@ -201,6 +225,7 @@ public class DroneDispatchService {
         broadcastSystemState();
         return response;
     }
+    
 
     /**
      * Submit a single delivery
@@ -211,13 +236,17 @@ public class DroneDispatchService {
                 request.getLatitude(), request.getLongitude());
 
         int deliveryId = deliveryIdCounter.getAndIncrement();
+        
+        // Store the ACTUAL destination
+        Position actualDestination = new Position(request.getLongitude(), request.getLatitude());
+        
         MedDispatchRec dispatch = new MedDispatchRec(
                 deliveryId,
                 "2025-01-01",
                 "12:00",
                 new Requirements(request.getCapacity(), request.isCooling(),
                         request.isHeating(), null),
-                new Position(request.getLongitude(), request.getLatitude())
+                actualDestination
         );
 
         List<ServicePoint> servicePoints = servicePointService.fetchAllServicePoints();
@@ -256,16 +285,16 @@ public class DroneDispatchService {
 
         logger.info("✅ Selected drone {} for delivery {}", selectedDrone.getId(), deliveryId);
 
-        // CRITICAL FIX: Mark drone as unavailable IMMEDIATELY to prevent race conditions
-        // Create a placeholder state that will be replaced when mission actually starts
+        // CRITICAL FIX: Mark drone as unavailable IMMEDIATELY with actual destination
         ActiveDroneState placeholderState = new ActiveDroneState(
                 selectedDrone.getId(),
                 deliveryId,
-                List.of(new LngLat(base.getLng(), base.getLat())), // Placeholder path
+                List.of(new LngLat(base.getLng(), base.getLat())),
                 selectedDrone.getCapability().getCapacity(),
                 dispatch.getRequirements().getCapacity(),
                 null,
-                1
+                1,
+                List.of(actualDestination)  // PASS THE ACTUAL DESTINATION
         );
         placeholderState.setStatus("PENDING");
         activeDrones.put(selectedDrone.getId(), placeholderState);
@@ -275,7 +304,7 @@ public class DroneDispatchService {
         broadcastSystemState();
 
         // Start single delivery mission (async - will replace placeholder state)
-        startSingleDeliveryMission(selectedDrone, dispatch, base);
+        startSingleDeliveryMission(selectedDrone, dispatch, base, actualDestination);
 
         return new DeliverySubmissionResult(
                 true,
@@ -290,10 +319,16 @@ public class DroneDispatchService {
      */
     @Async
     public void startBatchMission(Drone drone, List<MedDispatchRec> allDispatches, 
-                                  Position base, String batchId) {
+                                  Position base, String batchId, List<Position> deliveryDestinations) {
         String droneId = drone.getId();
         logger.info("🚁 Starting BATCH mission: Drone {} → {} deliveries in ONE flight", 
                 droneId, allDispatches.size());
+        
+        logger.info("📍 Batch destinations:");
+        for (int i = 0; i < deliveryDestinations.size(); i++) {
+            Position dest = deliveryDestinations.get(i);
+            logger.info("   #{}: ({}, {})", i + 1, dest.getLat(), dest.getLng());
+        }
 
         try {
             // Plan ALL deliveries together - this chains them!
@@ -325,7 +360,6 @@ public class DroneDispatchService {
                 if (i == 0) {
                     completePath.addAll(deliveryPath);
                 } else {
-                    // Skip first point (duplicate of last point from previous delivery)
                     completePath.addAll(deliveryPath.subList(1, deliveryPath.size()));
                 }
             }
@@ -335,12 +369,13 @@ public class DroneDispatchService {
 
             ActiveDroneState state = new ActiveDroneState(
                     droneId,
-                    -1, // No single delivery ID for batch
+                    -1,
                     completePath,
                     drone.getCapability().getCapacity(),
-                    0, // Will be updated
+                    0,
                     batchId,
-                    allDispatches.size()
+                    allDispatches.size(),
+                    deliveryDestinations  // PASS ACTUAL DESTINATIONS
             );
 
             activeDrones.put(droneId, state);
@@ -367,7 +402,7 @@ public class DroneDispatchService {
                         currentDeliveryIdx = d;
                         break;
                     }
-                    accumulatedSteps += stepsForThisDelivery - 1; // -1 to avoid double-counting
+                    accumulatedSteps += stepsForThisDelivery - 1;
                 }
 
                 state.setCurrentDeliveryIndex(currentDeliveryIdx);
@@ -416,11 +451,12 @@ public class DroneDispatchService {
      * Start single delivery mission
      */
     @Async
-    public void startSingleDeliveryMission(Drone drone, MedDispatchRec dispatch, Position base) {
+    public void startSingleDeliveryMission(Drone drone, MedDispatchRec dispatch, Position base, Position actualDestination) {
         String droneId = drone.getId();
         int deliveryId = dispatch.getId();
         
-        logger.info("🚁 Starting SINGLE delivery mission: Drone {} → Delivery {}", droneId, deliveryId);
+        logger.info("🚁 Starting SINGLE delivery mission: Drone {} → Delivery {} at ({}, {})", 
+                droneId, deliveryId, actualDestination.getLat(), actualDestination.getLng());
 
         try {
             CalcDeliveryResult result = plannerService.calcDeliveryPath(List.of(dispatch));
@@ -451,7 +487,8 @@ public class DroneDispatchService {
                     drone.getCapability().getCapacity(),
                     dispatch.getRequirements().getCapacity(),
                     null,
-                    1
+                    1,
+                    List.of(actualDestination)  // PASS ACTUAL DESTINATION
             );
 
             activeDrones.put(droneId, state);
@@ -527,16 +564,12 @@ public class DroneDispatchService {
         return bestDrone;
     }
 
-    /**
-     * Find an alternative drone with same/better capabilities that's not busy
-     */
     private Drone findAlternativeDrone(List<Drone> allDrones, Capability requiredCapability, 
                                         List<MedDispatchRec> dispatches) {
         if (requiredCapability == null || dispatches == null || dispatches.isEmpty()) {
             return null;
         }
 
-        // Calculate total requirements from all dispatches
         double totalCapacityNeeded = dispatches.stream()
                 .mapToDouble(d -> d.getRequirements().getCapacity())
                 .sum();
@@ -550,9 +583,8 @@ public class DroneDispatchService {
         logger.info("🔍 Looking for drone with: capacity >= {}, cooling={}, heating={}", 
                 totalCapacityNeeded, needsCooling, needsHeating);
 
-        // Find available drones with matching capabilities
         List<Drone> candidates = allDrones.stream()
-                .filter(drone -> !activeDrones.containsKey(drone.getId())) // Not busy
+                .filter(drone -> !activeDrones.containsKey(drone.getId()))
                 .filter(drone -> {
                     Capability cap = drone.getCapability();
                     if (cap == null) return false;
@@ -562,7 +594,6 @@ public class DroneDispatchService {
                     return true;
                 })
                 .sorted(Comparator.comparingDouble((Drone d) -> {
-                    // Sort by capacity (prefer closest match) and cost
                     double capacityDiff = Math.abs(d.getCapability().getCapacity() - totalCapacityNeeded);
                     double costFactor = d.getCapability().getCostPerMove() * 100;
                     return capacityDiff + costFactor;
@@ -610,42 +641,49 @@ public class DroneDispatchService {
                     .toList();
             update.setRoute(route);
             
-            // Find delivery point (hover point - where two consecutive points are the same)
+            // CRITICAL: Extract all delivery destinations from the flight path
+            List<List<Double>> allDeliveryDestinations = new ArrayList<>();
+            
+            // Find hover points (consecutive duplicate points indicate delivery location)
+            List<LngLat> path = state.getFlightPath();
+            for (int i = 0; i < path.size() - 1; i++) {
+                LngLat current = path.get(i);
+                LngLat next = path.get(i + 1);
+                
+                // Check if this is a hover point (same point repeated)
+                if (Math.abs(current.getLng() - next.getLng()) < 1e-10 && 
+                    Math.abs(current.getLat() - next.getLat()) < 1e-10) {
+                    allDeliveryDestinations.add(List.of(current.getLat(), current.getLng()));
+                }
+            }
+            
+            // If no hover points found, divide path into delivery points
+            if (allDeliveryDestinations.isEmpty() && state.getTotalDeliveriesInBatch() > 0) {
+                int deliveriesCount = state.getTotalDeliveriesInBatch();
+                int pathLength = path.size();
+                
+                for (int i = 1; i < deliveriesCount; i++) {
+                    int deliveryIndex = (i * pathLength) / (deliveriesCount + 1);
+                    if (deliveryIndex < pathLength) {
+                        LngLat point = path.get(deliveryIndex);
+                        allDeliveryDestinations.add(List.of(point.getLat(), point.getLng()));
+                    }
+                }
+            }
+            
+            logger.info("🎯 Batch: Found {} delivery destinations for drone {}", 
+                    allDeliveryDestinations.size(), state.getDroneId());
+            update.setAllDeliveryDestinations(allDeliveryDestinations);
+            
+            // Find first delivery point for initial marker
             LngLat deliveryPoint = findDeliveryPoint(state.getFlightPath());
             if (deliveryPoint != null) {
                 update.setDeliveryLatitude(deliveryPoint.getLat());
                 update.setDeliveryLongitude(deliveryPoint.getLng());
-                logger.info("🎯 Batch: Sending delivery coords for drone {}: ({}, {})", 
-                    state.getDroneId(), deliveryPoint.getLat(), deliveryPoint.getLng());
-            } else {
-                logger.error("❌ Batch: No delivery point found for drone {}", state.getDroneId());
             }
         }
 
         messagingTemplate.convertAndSend("/topic/drone-updates", update);
-    }
-    
-    private LngLat findDeliveryPoint(List<LngLat> flightPath) {
-        // Find hover point (two consecutive identical points)
-        for (int i = 0; i < flightPath.size() - 1; i++) {
-            LngLat curr = flightPath.get(i);
-            LngLat next = flightPath.get(i + 1);
-            double latDiff = Math.abs(curr.getLat() - next.getLat());
-            double lngDiff = Math.abs(curr.getLng() - next.getLng());
-            
-            // Hover threshold - must be within 0.00015 degrees (same as ILP close distance)
-            if (latDiff < 0.00015 && lngDiff < 0.00015) {
-                logger.info("✅ Found hover point at index {}: ({}, {})", i, curr.getLat(), curr.getLng());
-                return curr;
-            }
-        }
-        
-        // If no hover found, use point about 40% through the path (before return journey)
-        int deliveryIndex = Math.max(0, Math.min(flightPath.size() - 1, (flightPath.size() * 2) / 5));
-        LngLat fallbackPoint = flightPath.get(deliveryIndex);
-        logger.warn("⚠️ No hover point found in path of {} points, using fallback index {}: ({}, {})", 
-            flightPath.size(), deliveryIndex, fallbackPoint.getLat(), fallbackPoint.getLng());
-        return fallbackPoint;
     }
 
     private void broadcastSingleUpdate(ActiveDroneState state) {
@@ -666,11 +704,17 @@ public class DroneDispatchService {
                     .toList();
             update.setRoute(route);
             
-            // Find delivery point (hover point - where two consecutive points are the same)
+            // For single delivery, just add the delivery destination
             LngLat deliveryPoint = findDeliveryPoint(state.getFlightPath());
             if (deliveryPoint != null) {
                 update.setDeliveryLatitude(deliveryPoint.getLat());
                 update.setDeliveryLongitude(deliveryPoint.getLng());
+                
+                List<List<Double>> allDeliveryDestinations = List.of(
+                    List.of(deliveryPoint.getLat(), deliveryPoint.getLng())
+                );
+                update.setAllDeliveryDestinations(allDeliveryDestinations);
+                
                 logger.info("🎯 Single: Sending delivery coords for drone {}: ({}, {})", 
                     state.getDroneId(), deliveryPoint.getLat(), deliveryPoint.getLng());
             } else {
@@ -730,13 +774,29 @@ public class DroneDispatchService {
                 .count();
     }
 
+    private LngLat findDeliveryPoint(List<LngLat> flightPath) {
+        if (flightPath == null || flightPath.size() < 2) {
+            return null;
+        }
+
+        // Look for hover point (consecutive identical points)
+        for (int i = 0; i < flightPath.size() - 1; i++) {
+            LngLat current = flightPath.get(i);
+            LngLat next = flightPath.get(i + 1);
+            
+            if (Math.abs(current.getLng() - next.getLng()) < 1e-10 && 
+                Math.abs(current.getLat() - next.getLat()) < 1e-10) {
+                return current;
+            }
+        }
+
+        // If no hover point, return roughly 1/3 into the path (delivery point)
+        return flightPath.get(flightPath.size() / 3);
+    }
+
     public Map<String, ActiveDroneState> getActiveDrones() {
         return new HashMap<>(activeDrones);
     }
-
-    // ============================================================================
-    // Inner Classes
-    // ============================================================================
 
     private static class BatchData {
         String batchId;
@@ -758,6 +818,7 @@ public class DroneDispatchService {
         private final double capacityUsed;
         private final String batchId;
         private final int totalDeliveriesInBatch;
+        private final List<Position> deliveryDestinations;  // ADDED: Store actual destinations
 
         private LngLat currentPosition;
         private int stepIndex;
@@ -766,7 +827,8 @@ public class DroneDispatchService {
 
         public ActiveDroneState(String droneId, int deliveryId, List<LngLat> flightPath,
                                 double totalCapacity, double capacityUsed,
-                                String batchId, int totalDeliveriesInBatch) {
+                                String batchId, int totalDeliveriesInBatch,
+                                List<Position> deliveryDestinations) {  // ADDED parameter
             this.droneId = droneId;
             this.deliveryId = deliveryId;
             this.flightPath = flightPath;
@@ -774,6 +836,7 @@ public class DroneDispatchService {
             this.capacityUsed = capacityUsed;
             this.batchId = batchId;
             this.totalDeliveriesInBatch = totalDeliveriesInBatch;
+            this.deliveryDestinations = deliveryDestinations;  // STORE IT
             this.currentPosition = flightPath.get(0);
             this.stepIndex = 0;
             this.status = "DEPLOYING";
@@ -795,6 +858,7 @@ public class DroneDispatchService {
         public int getTotalDeliveriesInBatch() { return totalDeliveriesInBatch; }
         public int getCurrentDeliveryIndex() { return currentDeliveryIndex; }
         public void setCurrentDeliveryIndex(int idx) { this.currentDeliveryIndex = idx; }
+        public List<Position> getDeliveryDestinations() { return deliveryDestinations; }  // GETTER
     }
 
     public static class DeliveryRequest {
@@ -848,9 +912,10 @@ public class DroneDispatchService {
         private String batchId;
         private Integer currentDeliveryInBatch;
         private Integer totalDeliveriesInBatch;
-        private List<List<Double>> route; // Full flight path
+        private List<List<Double>> route;
         private Double deliveryLatitude;
         private Double deliveryLongitude;
+        private List<List<Double>> allDeliveryDestinations;  // ADDED: All destinations for markers
 
         public String getDroneId() { return droneId; }
         public void setDroneId(String id) { this.droneId = id; }
@@ -880,6 +945,8 @@ public class DroneDispatchService {
         public void setDeliveryLatitude(Double lat) { this.deliveryLatitude = lat; }
         public Double getDeliveryLongitude() { return deliveryLongitude; }
         public void setDeliveryLongitude(Double lng) { this.deliveryLongitude = lng; }
+        public List<List<Double>> getAllDeliveryDestinations() { return allDeliveryDestinations; }
+        public void setAllDeliveryDestinations(List<List<Double>> dests) { this.allDeliveryDestinations = dests; }
     }
 
     public static class SystemStateUpdate {
