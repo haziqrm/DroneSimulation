@@ -19,7 +19,7 @@ const DELIVERY_PRESETS = [
   { name: "Queensferry Crossing", lat: 55.9891, lng: -3.3984 }
 ];
 
-const DeliveryForm = () => {
+const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
   const [orderItems, setOrderItems] = useState([]);
   const [currentDelivery, setCurrentDelivery] = useState({
     customerName: '',
@@ -28,7 +28,9 @@ const DeliveryForm = () => {
     toLng: '',
     requiresCooling: false,
     requiresHeating: false,
-    capacity: 2.0 // Default 2kg
+    capacity: 2.0, // Default 2kg
+    date: new Date().toISOString().split('T')[0], // Today's date
+    time: '12:00' // Default time
   });
   const [orderCounter, setOrderCounter] = useState(1);
 
@@ -70,9 +72,28 @@ const DeliveryForm = () => {
     }
   };
 
+  // Handle pin button click
+  const handlePinClick = () => {
+    if (enablePinMode) {
+      enablePinMode((lat, lng) => {
+        setCurrentDelivery(prev => ({
+          ...prev,
+          toLat: lat.toFixed(4),
+          toLng: lng.toFixed(4),
+          locationName: '' // Clear preset name when manually pinning
+        }));
+      });
+    }
+  };
+
   const addToOrder = () => {
     if (!currentDelivery.customerName || !currentDelivery.toLat || !currentDelivery.toLng) {
       alert('Please fill in customer name and delivery coordinates');
+      return;
+    }
+
+    if (!currentDelivery.date || !currentDelivery.time) {
+      alert('Please select delivery date and time');
       return;
     }
 
@@ -93,7 +114,8 @@ const DeliveryForm = () => {
       ...currentDelivery,
       toLat: lat,
       toLng: lng,
-      id: Date.now()
+      id: Date.now(),
+      orderIndex: orderItems.length + 1 // Track position in batch
     }]);
 
     setCurrentDelivery({
@@ -103,12 +125,43 @@ const DeliveryForm = () => {
       toLng: '',
       requiresCooling: false,
       requiresHeating: false,
-      capacity: 2.0
+      capacity: 2.0,
+      date: currentDelivery.date, // Keep same date
+      time: currentDelivery.time  // Keep same time
     });
   };
 
   const removeFromOrder = (id) => {
-    setOrderItems(orderItems.filter(item => item.id !== id));
+    // Renumber remaining items
+    const updatedItems = orderItems
+      .filter(item => item.id !== id)
+      .map((item, index) => ({
+        ...item,
+        orderIndex: index + 1
+      }));
+    setOrderItems(updatedItems);
+  };
+
+  const moveItemUp = (index) => {
+    if (index === 0) return;
+    const newItems = [...orderItems];
+    [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
+    // Renumber
+    newItems.forEach((item, idx) => {
+      item.orderIndex = idx + 1;
+    });
+    setOrderItems(newItems);
+  };
+
+  const moveItemDown = (index) => {
+    if (index === orderItems.length - 1) return;
+    const newItems = [...orderItems];
+    [newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]];
+    // Renumber
+    newItems.forEach((item, idx) => {
+      item.orderIndex = idx + 1;
+    });
+    setOrderItems(newItems);
   };
 
   const dispatchOrder = async () => {
@@ -170,6 +223,29 @@ const DeliveryForm = () => {
         />
       </div>
 
+      {/* DATE AND TIME FIELDS */}
+      <div className="coordinate-grid">
+        <div className="form-group">
+          <label>📅 Delivery Date *</label>
+          <input
+            type="date"
+            name="date"
+            value={currentDelivery.date}
+            onChange={handleInputChange}
+            min={new Date().toISOString().split('T')[0]}
+          />
+        </div>
+        <div className="form-group">
+          <label>🕐 Delivery Time *</label>
+          <input
+            type="time"
+            name="time"
+            value={currentDelivery.time}
+            onChange={handleInputChange}
+          />
+        </div>
+      </div>
+
       <div className="form-group">
         <label>Location Preset (Optional)</label>
         <select
@@ -208,6 +284,23 @@ const DeliveryForm = () => {
             step="0.0001"
           />
         </div>
+      </div>
+
+      {/* PIN BUTTON */}
+      <div className="pin-button-container">
+        <button 
+          type="button"
+          className={`btn-pin ${isPinMode ? 'active' : ''}`}
+          onClick={isPinMode ? cancelPinMode : handlePinClick}
+          title={isPinMode ? "Cancel pin mode" : "Click to pin location on map"}
+        >
+          {isPinMode ? '✕ Cancel' : '📍 Pin on Map'}
+        </button>
+        {isPinMode && (
+          <div className="pin-helper">
+            Click anywhere on the map to set coordinates
+          </div>
+        )}
       </div>
 
       <div className="form-group">
@@ -255,24 +348,52 @@ const DeliveryForm = () => {
 
       {orderItems.length > 0 && (
         <div className="order-items">
-          <h3>Order Items ({orderItems.length})</h3>
+          <h3>📋 Delivery Sequence ({orderItems.length})</h3>
+          <div className="order-sequence-info">
+            Deliveries will be executed in this order ↓
+          </div>
           <div className="order-list">
-            {orderItems.map((item) => (
+            {orderItems.map((item, index) => (
               <div key={item.id} className="order-item">
+                <div className="order-number">
+                  {item.orderIndex}
+                </div>
                 <div className="order-item-info">
                   <strong>{item.customerName}</strong>
                   <div className="order-item-details">
                     📍 {item.locationName || `${item.toLat.toFixed(4)}, ${item.toLng.toFixed(4)}`}
                   </div>
                   <div className="order-item-meta">
-                    {item.capacity.toFixed(1)}kg
-                    {item.requiresCooling && ' • ❄️ Cooling'}
-                    {item.requiresHeating && ' • 🔥 Heating'}
+                    📅 {item.date} at {item.time} • {item.capacity.toFixed(1)}kg
+                    {item.requiresCooling && ' • ❄️'}
+                    {item.requiresHeating && ' • 🔥'}
                   </div>
                 </div>
-                <button className="btn-remove" onClick={() => removeFromOrder(item.id)}>
-                  ×
-                </button>
+                <div className="order-controls">
+                  <button 
+                    className="btn-move"
+                    onClick={() => moveItemUp(index)}
+                    disabled={index === 0}
+                    title="Move up"
+                  >
+                    ▲
+                  </button>
+                  <button 
+                    className="btn-move"
+                    onClick={() => moveItemDown(index)}
+                    disabled={index === orderItems.length - 1}
+                    title="Move down"
+                  >
+                    ▼
+                  </button>
+                  <button 
+                    className="btn-remove" 
+                    onClick={() => removeFromOrder(item.id)}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -284,7 +405,7 @@ const DeliveryForm = () => {
         onClick={dispatchOrder}
         disabled={orderItems.length === 0}
       >
-        Dispatch Order ({orderItems.length})
+        🚀 Dispatch Order ({orderItems.length})
       </button>
     </div>
   );

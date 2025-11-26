@@ -1,9 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-const DroneMap = ({ drones }) => {
+// Component to handle map clicks for pin mode
+const MapClickHandler = ({ isPinMode, onMapClick }) => {
+  useMapEvents({
+    click: (e) => {
+      if (isPinMode && onMapClick) {
+        const { lat, lng } = e.latlng;
+        console.log('📍 Map clicked at:', lat, lng);
+        onMapClick(lat, lng);
+      }
+    }
+  });
+  return null;
+};
+
+const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
   const [restrictedAreas, setRestrictedAreas] = useState([]);
   const [servicePoints, setServicePoints] = useState([]);
   const [flightPaths, setFlightPaths] = useState({});
@@ -50,11 +64,10 @@ const DroneMap = ({ drones }) => {
     fetchServicePoints();
   }, []);
 
-  // Update flight paths and delivery markers when drones update
   // Add a new state to store destinations persistently
-const [storedDestinations, setStoredDestinations] = useState({});
+  const [storedDestinations, setStoredDestinations] = useState({});
 
-// Update flight paths and delivery markers when drones update
+  // Update flight paths and delivery markers when drones update
   useEffect(() => {
     console.log('🔄 Drone update - Processing', drones.length, 'drones');
     
@@ -141,7 +154,7 @@ const [storedDestinations, setStoredDestinations] = useState({});
         }, 3000);
       }
     });
-  }, [drones, storedDestinations]); // Add storedDestinations to dependencies
+  }, [drones, storedDestinations]);
 
   const createDroneIcon = (droneId) => {
     return L.divIcon({
@@ -166,7 +179,6 @@ const [storedDestinations, setStoredDestinations] = useState({});
   };
 
   const createDeliveryIcon = (completed, index, total) => {
-    // Simple color change - no animations
     const backgroundColor = completed ? '#27ae60' : '#e74c3c';
     const emoji = '📦';
     const label = total > 1 ? `${index + 1}` : '';
@@ -235,7 +247,8 @@ const [storedDestinations, setStoredDestinations] = useState({});
     servicePoints: servicePoints.length,
     deliveryMarkers: Object.keys(deliveryMarkers).length,
     restrictedAreas: restrictedAreas.length,
-    drones: drones.length
+    drones: drones.length,
+    isPinMode: isPinMode
   });
 
   return (
@@ -243,12 +256,19 @@ const [storedDestinations, setStoredDestinations] = useState({});
       <MapContainer
         center={center}
         zoom={14}
-        style={{ height: '100%', width: '100%' }}
+        style={{ 
+          height: '100%', 
+          width: '100%',
+          cursor: isPinMode ? 'crosshair' : 'default'
+        }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+
+        {/* Map Click Handler for Pin Mode */}
+        <MapClickHandler isPinMode={isPinMode} onMapClick={onMapClick} />
 
         {/* Restricted Areas - LOWEST LAYER */}
         {restrictedAreas.map((area, index) => {

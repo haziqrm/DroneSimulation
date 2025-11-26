@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import DeliveryForm from './components/DeliveryForm';
 import DroneMap from './components/DroneMap';
 import useWebSocket from './hooks/useWebSocket';
@@ -6,6 +6,8 @@ import './App.css';
 
 function App() {
   const { drones, isConnected } = useWebSocket();
+  const [isPinMode, setIsPinMode] = useState(false);
+  const [onCoordinateSelect, setOnCoordinateSelect] = useState(null);
 
   const activeDrones = drones.filter(drone => 
     drone.status === 'FLYING' || drone.status === 'DELIVERING' || drone.status === 'RETURNING'
@@ -14,6 +16,27 @@ function App() {
   const pendingDrones = drones.filter(drone => 
     drone.status === 'IDLE' || drone.status === 'PENDING' || drone.status === 'DEPLOYING'
   );
+
+  // Handler to enable pin mode with a callback
+  const enablePinMode = (callback) => {
+    setIsPinMode(true);
+    setOnCoordinateSelect(() => callback);
+  };
+
+  // Handler when map is clicked
+  const handleMapClick = (lat, lng) => {
+    if (onCoordinateSelect) {
+      onCoordinateSelect(lat, lng);
+      setIsPinMode(false);
+      setOnCoordinateSelect(null);
+    }
+  };
+
+  // Cancel pin mode
+  const cancelPinMode = () => {
+    setIsPinMode(false);
+    setOnCoordinateSelect(null);
+  };
 
   return (
     <div className="app-container">
@@ -26,7 +49,11 @@ function App() {
 
       <div className="main-content">
         <div className="sidebar">
-          <DeliveryForm />
+          <DeliveryForm 
+            enablePinMode={enablePinMode}
+            isPinMode={isPinMode}
+            cancelPinMode={cancelPinMode}
+          />
           
           {/* Active Deliveries */}
           <div className="delivery-section">
@@ -105,7 +132,21 @@ function App() {
         </div>
 
         <div className="map-container">
-          <DroneMap drones={drones} />
+          <DroneMap 
+            drones={drones} 
+            isPinMode={isPinMode}
+            onMapClick={handleMapClick}
+          />
+          {isPinMode && (
+            <div className="pin-mode-overlay">
+              <div className="pin-mode-banner">
+                📍 Click on the map to select delivery location
+                <button className="btn-cancel-pin" onClick={cancelPinMode}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
