@@ -7,7 +7,7 @@ const DroneMap = ({ drones }) => {
   const [restrictedAreas, setRestrictedAreas] = useState([]);
   const [servicePoints, setServicePoints] = useState([]);
   const [flightPaths, setFlightPaths] = useState({});
-  const [deliveryMarkers, setDeliveryMarkers] = useState({});  // Changed to store ALL markers per drone
+  const [deliveryMarkers, setDeliveryMarkers] = useState({});
   const [completedPaths, setCompletedPaths] = useState({});
 
   const center = [55.9445, -3.1892];
@@ -64,38 +64,40 @@ const DroneMap = ({ drones }) => {
         }));
       }
 
-      // CRITICAL FIX: Use allDeliveryDestinations from backend instead of trying to extract from path
+      // Update delivery markers with completion tracking
+      // Update delivery markers with completion tracking
       if (drone.allDeliveryDestinations && drone.allDeliveryDestinations.length > 0) {
-        console.log(`🎯 Drone ${drone.droneId} has ${drone.allDeliveryDestinations.length} delivery destinations:`, 
-                drone.allDeliveryDestinations);
+        console.log(`🎯 Drone ${drone.droneId} - Status: ${drone.status}, Completed deliveries: ${drone.currentDeliveryInBatch}`);
         
-        // Create markers for ALL destinations
-        const markers = drone.allDeliveryDestinations.map((dest, idx) => ({
-          position: [dest[0], dest[1]],  // [lat, lng] format from backend
-          deliveryId: drone.deliveryId !== -1 ? drone.deliveryId : `${drone.droneId}-${idx}`,
-          droneId: drone.droneId,
-          batchId: drone.batchId,
-          index: idx,
-          total: drone.allDeliveryDestinations.length,
-          completed: drone.status === 'COMPLETED' || 
-                     (drone.currentDeliveryInBatch && idx < drone.currentDeliveryInBatch - 1)
-        }));
+        // Create markers for ALL destinations with proper completion tracking
+        const markers = drone.allDeliveryDestinations.map((dest, idx) => {
+          // currentDeliveryInBatch tracks how many deliveries have been COMPLETED
+          // So if currentDeliveryInBatch = 1, then delivery 0 is complete
+          const isCompleted = idx < drone.currentDeliveryInBatch || drone.status === 'COMPLETED';
+          
+          console.log(`   → Delivery ${idx + 1}: ${isCompleted ? '✅ COMPLETED' : '⏳ PENDING'} (completed count: ${drone.currentDeliveryInBatch})`);
+          
+          return {
+            position: [dest[0], dest[1]],
+            deliveryId: drone.deliveryId !== -1 ? drone.deliveryId : `${drone.droneId}-${idx}`,
+            droneId: drone.droneId,
+            batchId: drone.batchId,
+            index: idx,
+            total: drone.allDeliveryDestinations.length,
+            completed: isCompleted
+          };
+        });
         
+        // ALWAYS update markers to reflect completion status changes
         setDeliveryMarkers(prev => ({
           ...prev,
           [drone.droneId]: markers
         }));
         
-        console.log(`✅ Created ${markers.length} delivery markers for drone ${drone.droneId}`);
+        console.log(`✅ Updated ${markers.length} delivery markers for drone ${drone.droneId}`);
       }
     });
-    
-    console.log(`📊 DELIVERY MARKERS IN STATE:`, {
-      count: Object.keys(deliveryMarkers).length,
-      markers: deliveryMarkers
-    });
 
-    // Clean up completed drones
     const activeDroneIds = new Set(drones.map(d => d.droneId));
     Object.keys(flightPaths).forEach(droneId => {
       if (!activeDroneIds.has(droneId)) {
@@ -121,7 +123,7 @@ const DroneMap = ({ drones }) => {
         }, 3000);
       }
     });
-  }, [drones, flightPaths]);
+  }, [drones]);
 
   const createDroneIcon = (droneId) => {
     return L.divIcon({
@@ -146,13 +148,14 @@ const DroneMap = ({ drones }) => {
   };
 
   const createDeliveryIcon = (completed, index, total) => {
-    const color = completed ? '#27ae60' : '#e74c3c';
-    const emoji = completed ? '✅' : '📍';
+    // Simple color change - no animations
+    const backgroundColor = completed ? '#27ae60' : '#e74c3c';
+    const emoji = '📦';
     const label = total > 1 ? `${index + 1}` : '';
     
     return L.divIcon({
       html: `<div style="
-        background: ${color};
+        background: ${backgroundColor};
         color: white;
         width: 40px;
         height: 40px;
@@ -328,18 +331,18 @@ const DroneMap = ({ drones }) => {
           console.log(`📍 Rendering ${markers.length} markers for drone ${droneId}`);
           
           return markers.map((marker, idx) => {
-            console.log(`   → Marker ${idx}: [${marker.position[0]}, ${marker.position[1]}], completed: ${marker.completed}`);
+            console.log(`   → Marker ${idx}: completed: ${marker.completed}`);
             
             return (
               <Marker
-                key={`delivery-${droneId}-${idx}`}
+                key={`delivery-${droneId}-${idx}-${marker.completed ? 'done' : 'pending'}`}
                 position={marker.position}
                 icon={createDeliveryIcon(marker.completed, marker.index, marker.total)}
                 zIndexOffset={5000}
               >
                 <Popup>
                   <div style={{ textAlign: 'center' }}>
-                    <strong>{marker.completed ? '✅ Delivered' : '📍 Delivery Point'}</strong><br/>
+                    <strong>{marker.completed ? '✅ Delivered' : '📦 Delivery Point'}</strong><br/>
                     {marker.batchId && (
                       <>
                         <small>Batch: {marker.batchId}</small><br/>

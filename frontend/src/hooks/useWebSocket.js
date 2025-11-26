@@ -76,6 +76,7 @@ export default function useWebSocket() {
                   route: droneUpdate.route || null, // Full flight path
                   deliveryLatitude: droneUpdate.deliveryLatitude || null,
                   deliveryLongitude: droneUpdate.deliveryLongitude || null,
+                  allDeliveryDestinations: droneUpdate.allDeliveryDestinations || null, // ALL delivery markers
                   // Batch tracking
                   batchId: droneUpdate.batchId,
                   currentDeliveryInBatch: droneUpdate.currentDeliveryInBatch,
