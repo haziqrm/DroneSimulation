@@ -319,17 +319,9 @@ public class DroneDispatchService {
     public void startBatchMission(Drone drone, List<MedDispatchRec> allDispatches, 
                                 Position base, String batchId, List<Position> deliveryDestinations) {
         String droneId = drone.getId();
-        logger.info("🚁 Starting BATCH mission: Drone {} → {} deliveries in ONE flight", 
-                droneId, allDispatches.size());
-        
-        logger.info("📍 Batch destinations:");
-        for (int i = 0; i < deliveryDestinations.size(); i++) {
-            Position dest = deliveryDestinations.get(i);
-            logger.info("   #{}: ({}, {})", i + 1, dest.getLat(), dest.getLng());
-        }
+        logger.info("🚁 Starting BATCH mission: Drone {} → {} deliveries", droneId, allDispatches.size());
 
         try {
-            // Plan ALL deliveries together - this chains them!
             CalcDeliveryResult result = plannerService.calcDeliveryPath(allDispatches);
 
             if (result.getDronePaths() == null || result.getDronePaths().isEmpty()) {
@@ -343,15 +335,7 @@ public class DroneDispatchService {
             DronePathResult pathResult = result.getDronePaths().get(0);
             List<DeliveryResult> deliveryResults = pathResult.getDeliveries();
 
-            if (deliveryResults.isEmpty()) {
-                logger.error("❌ No delivery paths for batch {}", batchId);
-                activeDrones.remove(droneId);
-                broadcastSystemState();
-                broadcastBatchFailed(batchId, droneId, "No valid paths");
-                return;
-            }
-
-            // Build complete flight path by chaining all delivery paths
+            // Build complete flight path
             List<LngLat> completePath = new ArrayList<>();
             for (int i = 0; i < deliveryResults.size(); i++) {
                 List<LngLat> deliveryPath = deliveryResults.get(i).getFlightPath();
@@ -362,26 +346,32 @@ public class DroneDispatchService {
                 }
             }
 
-            logger.info("✈️ Batch {} flight path: {} waypoints for {} deliveries", 
+            logger.info("✈️ Batch {} path: {} waypoints for {} deliveries", 
                     batchId, completePath.size(), deliveryResults.size());
 
+            // PRE-CALCULATE which step indices are hover points (delivery locations)
+            List<Integer> hoverStepIndices = new ArrayList<>();
+            for (int i = 0; i < completePath.size() - 1; i++) {
+                LngLat current = completePath.get(i);
+                LngLat next = completePath.get(i + 1);
+                
+                // Hover point = same position twice in a row
+                if (Math.abs(current.getLng() - next.getLng()) < 1e-10 && 
+                    Math.abs(current.getLat() - next.getLat()) < 1e-10) {
+                    hoverStepIndices.add(i);
+                    logger.info("📍 Delivery #{} hover point at step {}", hoverStepIndices.size(), i);
+                }
+            }
+
             ActiveDroneState state = new ActiveDroneState(
-                    droneId,
-                    -1,
-                    completePath,
-                    drone.getCapability().getCapacity(),
-                    0,
-                    batchId,
-                    allDispatches.size(),
-                    deliveryDestinations
+                    droneId, -1, completePath, drone.getCapability().getCapacity(),
+                    0, batchId, allDispatches.size(), deliveryDestinations
             );
 
             activeDrones.put(droneId, state);
             broadcastSystemState();
 
-            // Track completed deliveries by detecting hover points
-            int completedDeliveries = 0;
-            
+            // Fly the mission
             for (int i = 0; i < completePath.size(); i++) {
                 if (!activeDrones.containsKey(droneId)) {
                     logger.warn("⚠️ Drone {} mission cancelled", droneId);
@@ -392,25 +382,17 @@ public class DroneDispatchService {
                 state.setCurrentPosition(position);
                 state.setStepIndex(i);
 
-                // Check if we just reached a hover point (delivery completed)
-                if (i > 0 && i < completePath.size() - 1) {
-                    LngLat current = completePath.get(i);
-                    LngLat next = completePath.get(i + 1);
-                    
-                    // Hover point detected (same position twice in a row)
-                    if (Math.abs(current.getLng() - next.getLng()) < 1e-10 && 
-                        Math.abs(current.getLat() - next.getLat()) < 1e-10) {
-                        
-                        completedDeliveries++;
-                        logger.info("✅ Delivery {} of {} COMPLETED at step {}", 
-                                completedDeliveries, allDispatches.size(), i);
+                // Count how many hover points we've PASSED (not including current)
+                int completedCount = 0;
+                for (int hoverIdx : hoverStepIndices) {
+                    if (i > hoverIdx) {  // PAST this hover (not AT it)
+                        completedCount++;
                     }
                 }
 
-                // Set current delivery index (which delivery we're working on or have completed)
-                state.setCurrentDeliveryIndex(completedDeliveries);
+                state.setCurrentDeliveryIndex(completedCount);
 
-                // Determine status
+                // Status based on progress
                 double progress = (double) i / completePath.size();
                 if (progress < 0.1) {
                     state.setStatus("DEPLOYING");
@@ -426,10 +408,9 @@ public class DroneDispatchService {
                 Thread.sleep(50);
             }
 
-            logger.info("🎉 Batch {} completed all {} deliveries", batchId, allDispatches.size());
-
+            logger.info("🎉 Batch {} completed", batchId);
             state.setStatus("COMPLETED");
-            state.setCurrentDeliveryIndex(allDispatches.size()); // All completed
+            state.setCurrentDeliveryIndex(allDispatches.size());
             broadcastBatchUpdate(state);
             Thread.sleep(3000);
 
@@ -439,13 +420,13 @@ public class DroneDispatchService {
             broadcastBatchCompleted(batchId, droneId);
 
         } catch (InterruptedException e) {
-            logger.warn("⚠️ Batch {} mission interrupted", batchId);
+            logger.warn("⚠️ Batch {} interrupted", batchId);
             Thread.currentThread().interrupt();
             activeDrones.remove(droneId);
             activeBatches.remove(batchId);
             broadcastSystemState();
         } catch (Exception e) {
-            logger.error("❌ Batch {} mission failed with exception", batchId, e);
+            logger.error("❌ Batch {} failed", batchId, e);
             activeDrones.remove(droneId);
             activeBatches.remove(batchId);
             broadcastSystemState();
@@ -637,7 +618,7 @@ public class DroneDispatchService {
         update.setCapacityUsed(0);
         update.setTotalCapacity(state.getTotalCapacity());
         update.setBatchId(state.getBatchId());
-        update.setCurrentDeliveryInBatch(state.getCurrentDeliveryIndex() + 1);
+        update.setCurrentDeliveryInBatch(state.getCurrentDeliveryIndex());
         update.setTotalDeliveriesInBatch(state.getTotalDeliveriesInBatch());
 
         // Include full route on first update

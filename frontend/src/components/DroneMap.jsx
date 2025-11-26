@@ -51,6 +51,10 @@ const DroneMap = ({ drones }) => {
   }, []);
 
   // Update flight paths and delivery markers when drones update
+  // Add a new state to store destinations persistently
+const [storedDestinations, setStoredDestinations] = useState({});
+
+// Update flight paths and delivery markers when drones update
   useEffect(() => {
     console.log('🔄 Drone update - Processing', drones.length, 'drones');
     
@@ -64,18 +68,27 @@ const DroneMap = ({ drones }) => {
         }));
       }
 
-      // Update delivery markers with completion tracking
-      // Update delivery markers with completion tracking
+      // FIRST: Store destinations if this is the first update with them
       if (drone.allDeliveryDestinations && drone.allDeliveryDestinations.length > 0) {
-        console.log(`🎯 Drone ${drone.droneId} - Status: ${drone.status}, Completed deliveries: ${drone.currentDeliveryInBatch}`);
+        if (!storedDestinations[drone.droneId]) {
+          console.log(`💾 STORING destinations for drone ${drone.droneId}: ${drone.allDeliveryDestinations.length} locations`);
+          setStoredDestinations(prev => ({
+            ...prev,
+            [drone.droneId]: drone.allDeliveryDestinations
+          }));
+        }
+      }
+
+      // THEN: Update markers using stored destinations + current completion status
+      const destinations = storedDestinations[drone.droneId];
+      if (destinations && destinations.length > 0) {
+        console.log(`🎯 Drone ${drone.droneId} - Completed: ${drone.currentDeliveryInBatch}/${drone.totalDeliveriesInBatch}`);
         
-        // Create markers for ALL destinations with proper completion tracking
-        const markers = drone.allDeliveryDestinations.map((dest, idx) => {
-          // currentDeliveryInBatch tracks how many deliveries have been COMPLETED
-          // So if currentDeliveryInBatch = 1, then delivery 0 is complete
+        const markers = destinations.map((dest, idx) => {
+          // currentDeliveryInBatch = how many deliveries have been PASSED
           const isCompleted = idx < drone.currentDeliveryInBatch || drone.status === 'COMPLETED';
           
-          console.log(`   → Delivery ${idx + 1}: ${isCompleted ? '✅ COMPLETED' : '⏳ PENDING'} (completed count: ${drone.currentDeliveryInBatch})`);
+          console.log(`   Delivery ${idx + 1}: ${isCompleted ? '✅ GREEN' : '🔴 RED'} (completed: ${drone.currentDeliveryInBatch})`);
           
           return {
             position: [dest[0], dest[1]],
@@ -83,7 +96,7 @@ const DroneMap = ({ drones }) => {
             droneId: drone.droneId,
             batchId: drone.batchId,
             index: idx,
-            total: drone.allDeliveryDestinations.length,
+            total: destinations.length,
             completed: isCompleted
           };
         });
@@ -120,10 +133,15 @@ const DroneMap = ({ drones }) => {
             delete updated[droneId];
             return updated;
           });
+          setStoredDestinations(prev => {
+            const updated = { ...prev };
+            delete updated[droneId];
+            return updated;
+          });
         }, 3000);
       }
     });
-  }, [drones]);
+  }, [drones, storedDestinations]); // Add storedDestinations to dependencies
 
   const createDroneIcon = (droneId) => {
     return L.divIcon({
