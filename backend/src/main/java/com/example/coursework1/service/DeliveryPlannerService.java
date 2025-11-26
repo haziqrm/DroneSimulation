@@ -107,7 +107,7 @@ public class DeliveryPlannerService {
     }
 
     private CalcDeliveryResult planSingleDroneDelivery(Drone drone, List<MedDispatchRec> dispatches,
-                                                       Position base) {
+                                                   Position base) {
         Capability cap = drone.getCapability();
         if (cap == null) return null;
 
@@ -115,8 +115,11 @@ public class DeliveryPlannerService {
         Position current = base;
         int totalMoves = 0;
 
-        for (MedDispatchRec dispatch : dispatches) {
+        // First pass: plan all deliveries WITHOUT hover points between them
+        for (int deliveryIdx = 0; deliveryIdx < dispatches.size(); deliveryIdx++) {
+            MedDispatchRec dispatch = dispatches.get(deliveryIdx);
             Position dest = dispatch.getDelivery();
+            boolean isLastDelivery = (deliveryIdx == dispatches.size() - 1);
 
             logger.debug("Planning path for delivery {} from {} to {}",
                     dispatch.getId(), current, dest);
@@ -135,6 +138,7 @@ public class DeliveryPlannerService {
                 return null;
             }
 
+            // Find closest point to destination
             int closestIndex = 0;
             double closestDist = Double.POSITIVE_INFINITY;
             for (int i = 0; i < pathToDest.size(); i++) {
@@ -149,24 +153,31 @@ public class DeliveryPlannerService {
 
             pathToDest = new ArrayList<>(pathToDest.subList(0, closestIndex + 1));
 
+            // Remove duplicate start point if not first delivery
             if (!allDeliveries.isEmpty() && !pathToDest.isEmpty()) {
                 pathToDest = new ArrayList<>(pathToDest.subList(1, pathToDest.size()));
             }
 
-            LngLat hoverPoint = pathToDest.get(pathToDest.size() - 1);
-            pathToDest.add(new LngLat(hoverPoint.getLng(), hoverPoint.getLat()));
+            // ONLY add hover point for the LAST delivery
+            if (isLastDelivery) {
+                LngLat hoverPoint = pathToDest.get(pathToDest.size() - 1);
+                pathToDest.add(new LngLat(hoverPoint.getLng(), hoverPoint.getLat()));
+                logger.debug("Added HOVER point at end of final delivery");
+            }
 
-            current = new Position(hoverPoint.getLng(), hoverPoint.getLat());
+            current = new Position(pathToDest.get(pathToDest.size() - 1).getLng(), 
+                                pathToDest.get(pathToDest.size() - 1).getLat());
 
             int steps = pathToDest.size() - 1;
             totalMoves += steps;
 
             allDeliveries.add(new DeliveryResult(dispatch.getId(), pathToDest));
 
-            logger.debug("Added delivery {} ({} steps, hovering at {}, {} - distance to target: {})",
+            logger.debug("Added delivery {} ({} steps, position {}, {} - distance to target: {})",
                     dispatch.getId(), steps, current.getLng(), current.getLat(), closestDist);
         }
 
+        // Final return to base from last delivery location
         List<LngLat> returnPath = buildPathAvoidingRestrictions(current, base);
         if (returnPath == null) {
             returnPath = buildPathWithRelaxedConstraints(current, base);
@@ -186,6 +197,7 @@ public class DeliveryPlannerService {
             return null;
         }
 
+        // Append return path to last delivery
         if (!allDeliveries.isEmpty()) {
             DeliveryResult lastDelivery = allDeliveries.get(allDeliveries.size() - 1);
             List<LngLat> lastPath = new ArrayList<>(lastDelivery.getFlightPath());
@@ -206,18 +218,16 @@ public class DeliveryPlannerService {
     }
 
     private CalcDeliveryResult planMultiDroneDelivery(List<MedDispatchRec> pending,
-                                                      List<MedDispatchRec> allDispatches,
-                                                      List<Drone> allDrones,
-                                                      Position defaultBase) {
+                                                  List<MedDispatchRec> allDispatches,
+                                                  List<Drone> allDrones,
+                                                  Position defaultBase) {
         double totalCost = 0.0;
         int totalMoves = 0;
         List<DronePathResult> dronePaths = new ArrayList<>();
 
-        List<Drone> sortedDrones = allDrones.stream()
-                .sorted(Comparator.comparingDouble((Drone dr) -> -safeGetCapabilityCapacity(dr)))
-                .toList();
-
-        logger.info("Processing with {} total drones", sortedDrones.size());
+        // Sort drones by capacity (descending)
+        List<Drone> sortedDrones = new ArrayList<>(allDrones);
+        sortedDrones.sort(Comparator.comparingDouble((Drone d) -> d.getCapability() != null ? d.getCapability().getCapacity() : 0).reversed());
 
         for (Drone drone : sortedDrones) {
             if (pending.isEmpty()) break;
@@ -241,13 +251,13 @@ public class DeliveryPlannerService {
                 double capacityUsed = 0.0;
 
                 List<DeliveryResult> flightDeliveries = new ArrayList<>();
+                List<MedDispatchRec> deliveriesThisFlight = new ArrayList<>();
 
                 List<MedDispatchRec> candidates = pending.stream()
                         .filter(m -> {
                             if (!fitsRequirements(m.getRequirements(), cap)) {
                                 return false;
                             }
-
                             List<String> available = droneAvailabilityService.queryAvailableDrones(List.of(m));
                             boolean isAvailable = available.contains(drone.getId());
                             if (!isAvailable) {
@@ -264,6 +274,7 @@ public class DeliveryPlannerService {
 
                 logger.info("Drone {} has {} candidates for flight #{}", drone.getId(), candidates.size(), flightNumber);
 
+                // PHASE 1: Build chain of deliveries WITHOUT intermediate returns
                 while (!candidates.isEmpty() && movesLeft > 0) {
                     MedDispatchRec next = nearest(current, candidates);
                     if (next == null) break;
@@ -310,34 +321,35 @@ public class DeliveryPlannerService {
 
                     pathToDest = new ArrayList<>(pathToDest.subList(0, closestIndex + 1));
 
+                    // Remove duplicate start point if not first delivery
                     if (!flightDeliveries.isEmpty() && !pathToDest.isEmpty()) {
                         pathToDest = new ArrayList<>(pathToDest.subList(1, pathToDest.size()));
                     }
 
-                    LngLat hoverPoint = pathToDest.get(pathToDest.size() - 1);
-                    pathToDest.add(new LngLat(hoverPoint.getLng(), hoverPoint.getLat()));
-
+                    // DON'T add hover point yet - we'll only add it for the LAST delivery
                     int toDest = pathToDest.size() - 1;
-                    int back = estimateStepsBack(dest, base);
 
-                    if (toDest + back > movesLeft) {
+                    // Calculate steps needed to return to base from this delivery
+                    int stepsBackFromHere = estimateStepsBack(dest, base);
+
+                    if (toDest + stepsBackFromHere > movesLeft) {
                         logger.debug("Not enough moves for delivery {} ({} + {} > {})",
-                                next.getId(), toDest, back, movesLeft);
+                                next.getId(), toDest, stepsBackFromHere, movesLeft);
                         candidates.remove(next);
                         continue;
                     }
 
-                    current = new Position(hoverPoint.getLng(), hoverPoint.getLat());
-
+                    current = dest;
                     movesLeft -= toDest;
                     usedMovesThisFlight += toDest;
                     capacityUsed += next.getRequirements().getCapacity();
 
                     flightDeliveries.add(new DeliveryResult(next.getId(), pathToDest));
+                    deliveriesThisFlight.add(next);
                     pending.remove(next);
                     candidates.remove(next);
 
-                    logger.info("Delivery {} added ({} moves, {} moves left, {}/{} capacity used, hovering at {}, {} - distance to target: {})",
+                    logger.info("Delivery {} added ({} moves, {} moves left, {}/{} capacity used, at {}, {} - distance to target: {})",
                             next.getId(), toDest, movesLeft, capacityUsed, cap.getCapacity(),
                             current.getLng(), current.getLat(), closestDist);
                 }
@@ -347,6 +359,7 @@ public class DeliveryPlannerService {
                     break;
                 }
 
+                // PHASE 2: Build return path and chain everything together
                 List<LngLat> returnPath = buildPathAvoidingRestrictions(current, base);
                 if (returnPath == null) {
                     returnPath = buildPathWithRelaxedConstraints(current, base);
@@ -365,14 +378,16 @@ public class DeliveryPlannerService {
                     break;
                 }
 
-                if (!flightDeliveries.isEmpty() && returnPath != null) {
+                // Add hover point ONLY to the last delivery
+                if (!flightDeliveries.isEmpty()) {
                     DeliveryResult lastDelivery = flightDeliveries.get(flightDeliveries.size() - 1);
                     List<LngLat> lastPath = new ArrayList<>(lastDelivery.getFlightPath());
-
+                    LngLat hoverPoint = lastPath.get(lastPath.size() - 1);
+                    lastPath.add(new LngLat(hoverPoint.getLng(), hoverPoint.getLat()));
+                    // Append return path
                     for (int i = 1; i < returnPath.size(); i++) {
                         lastPath.add(returnPath.get(i));
                     }
-
                     lastDelivery.setFlightPath(lastPath);
                 }
 
@@ -384,7 +399,7 @@ public class DeliveryPlannerService {
 
                 allDeliveries.addAll(flightDeliveries);
 
-                logger.info("Flight #{} completed: {} deliveries, {} moves, ${} cost",
+                logger.info("Flight #{} completed: {} deliveries CHAINED together, {} moves, ${} cost",
                         flightNumber, flightDeliveries.size(), usedMovesThisFlight, flightCost);
 
                 LngLat baseHoverPoint = returnPath.get(returnPath.size() - 1);

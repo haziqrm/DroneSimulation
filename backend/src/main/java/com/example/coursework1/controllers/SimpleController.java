@@ -194,7 +194,7 @@ public class SimpleController {
         return ResponseEntity.ok(available);
     }
 
-    @PostMapping("/v1/submitBatch")
+    @PostMapping("submitBatch")
     public ResponseEntity<Map<String, Object>> submitBatch(@RequestBody BatchDeliveryRequest batchRequest) {
         logger.info("📦 Received batch submission: {}", batchRequest.getBatchId());
         logger.info("📊 Batch contains {} deliveries", batchRequest.getDeliveries().size());
