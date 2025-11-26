@@ -26,6 +26,10 @@ public class RestrictedAreaService {
         this.regionService = regionService;
     }
 
+    public List<RestrictedArea> getRestrictedAreas() {
+        return restrictedAreaRepository.fetchRestrictedAreas();
+    }
+
     public boolean isInRestrictedArea(Position position) {
         if (position == null) {
             return false;
