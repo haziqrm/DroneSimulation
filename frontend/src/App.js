@@ -38,7 +38,7 @@ function App() {
                 {activeDrones.map((drone) => (
                   <div key={drone.droneId} className="delivery-card active">
                     <div className="delivery-header">
-                      <div className="drone-number">Drone #{drone.droneNumber}</div>
+                      <div className="drone-number">Drone {drone.droneId}</div>
                       <span className={`status-badge ${drone.status.toLowerCase()}`}>
                         {drone.status}
                       </span>
@@ -86,7 +86,7 @@ function App() {
                 {pendingDrones.map((drone) => (
                   <div key={drone.droneId} className="delivery-card pending">
                     <div className="delivery-header">
-                      <div className="drone-number">Drone #{drone.droneNumber}</div>
+                      <div className="drone-number">Drone {drone.droneId}</div>
                       <span className="status-badge pending">
                         {drone.status}
                       </span>

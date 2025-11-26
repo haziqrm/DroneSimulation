@@ -125,42 +125,33 @@ const DeliveryForm = () => {
 
     try {
       // Try to dispatch as a batch first
-      await dispatchBatch(itemsToDispatch, batchId);
-      console.log(`✅ Batch ${batchId} dispatched successfully`);
-    } catch (error) {
-      console.error('❌ Batch dispatch failed, falling back to individual dispatches:', error);
+      const result = await dispatchBatch(itemsToDispatch, batchId);
       
-      // Fallback: dispatch individually
-      for (let i = 0; i < itemsToDispatch.length; i++) {
-        const item = itemsToDispatch[i];
-        try {
-          console.log(`📦 Dispatching delivery ${i + 1}/${itemsToDispatch.length}:`, {
-            customer: item.customerName,
-            location: item.locationName || `${item.toLat}, ${item.toLng}`,
-            capacity: item.capacity,
-            cooling: item.requiresCooling,
-            heating: item.requiresHeating
-          });
-
-          await dispatchDrone(
-            `${item.customerName} (${batchId}-${i + 1})`,
-            item.toLng,
-            item.toLat,
-            item.toLng,
-            item.toLat,
-            item.requiresCooling,
-            item.requiresHeating,
-            item.capacity
-          );
-
-          // Small delay between dispatches
-          if (i < itemsToDispatch.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 200));
-          }
-        } catch (error) {
-          console.error('❌ Failed to dispatch:', item.customerName, error);
-        }
+      if (!result.success) {
+        console.error('❌ Batch dispatch failed:', result.message);
+        alert(`❌ Batch dispatch failed: ${result.message}\n\nTry again in a few seconds when drones are available.`);
+        
+        // Put items back in the queue
+        setOrderItems(itemsToDispatch);
+        setOrderCounter(prev => prev - 1); // Revert counter
+        return;
       }
+      
+      console.log(`✅ Batch ${batchId} dispatched successfully:`, result);
+      
+      // Show notification if some drones were skipped
+      if (result.skippedDrones && result.skippedDrones.length > 0) {
+        console.warn(`⚠️ Some drones were skipped:`, result.skippedDrones);
+        alert(`⚠️ Batch dispatched, but ${result.skippedDrones.length} drone(s) were unavailable.\nDispatched: ${result.dispatchedDrones} drone(s)`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Batch dispatch failed with exception:', error);
+      alert(`❌ Failed to dispatch batch: ${error.message}\n\nAll drones may be busy. Try again in a few seconds.`);
+      
+      // Put items back in the queue
+      setOrderItems(itemsToDispatch);
+      setOrderCounter(prev => prev - 1); // Revert counter
     }
   };
 

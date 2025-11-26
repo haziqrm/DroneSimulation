@@ -40,7 +40,7 @@ const DroneMap = ({ drones }) => {
     fetchServicePoints();
   }, []);
 
-  const createDroneIcon = (droneNumber) => {
+  const createDroneIcon = (droneId) => {
     return L.divIcon({
       html: `<div style="
         background: #3498db;
@@ -55,7 +55,7 @@ const DroneMap = ({ drones }) => {
         font-size: 14px;
         border: 2px solid white;
         box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      ">${droneNumber}</div>`,
+      ">${droneId}</div>`,
       className: '',
       iconSize: [32, 32],
       iconAnchor: [16, 16]
@@ -166,10 +166,10 @@ const DroneMap = ({ drones }) => {
           <Marker
             key={drone.droneId}
             position={[drone.latitude, drone.longitude]}
-            icon={createDroneIcon(drone.droneNumber)}
+            icon={createDroneIcon(drone.droneId)}
           >
             <Popup>
-              <strong>Drone #{drone.droneNumber}</strong><br/>
+              <strong>Drone {drone.droneId}</strong><br/>
               Status: {drone.status}<br/>
               Delivery: #{drone.deliveryId}<br/>
               Progress: {drone.progress?.toFixed(0)}%

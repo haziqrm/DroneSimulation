@@ -42,6 +42,31 @@ public class DroneDispatchService {
         logger.info("📦 Processing batch: {} with {} deliveries", 
                 batchRequest.getBatchId(), batchRequest.getDeliveries().size());
 
+        // CRITICAL: Check drone availability FIRST
+        List<Drone> allDrones = droneService.fetchAllDrones();
+        int totalDrones = allDrones.size();
+        int busyDrones = activeDrones.size();
+        int availableDrones = totalDrones - busyDrones;
+        
+        logger.info("🚁 Drone status: {} total, {} busy, {} available", 
+                totalDrones, busyDrones, availableDrones);
+        
+        if (busyDrones > 0) {
+            logger.info("🔒 Busy drones: {}", activeDrones.keySet());
+        }
+
+        if (availableDrones == 0) {
+            logger.error("❌ No drones available for batch {} - all {} drones are busy", 
+                    batchRequest.getBatchId(), totalDrones);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "All drones are currently busy. Please wait for a drone to complete its delivery.");
+            response.put("totalDrones", totalDrones);
+            response.put("busyDrones", busyDrones);
+            response.put("busyDroneIds", new ArrayList<>(activeDrones.keySet()));
+            return response;
+        }
+
         // Convert all deliveries to MedDispatchRec (just like the GeoJSON endpoint)
         List<MedDispatchRec> allDispatches = new ArrayList<>();
         for (DeliveryRequest delivery : batchRequest.getDeliveries()) {
@@ -58,6 +83,7 @@ public class DroneDispatchService {
         }
 
         // Use the exact same logic as calcDeliveryPathAsGeoJson
+        logger.info("🔍 Planning delivery path for {} dispatches...", allDispatches.size());
         CalcDeliveryResult result = plannerService.calcDeliveryPath(allDispatches);
 
         Map<String, Object> response = new HashMap<>();
@@ -67,6 +93,13 @@ public class DroneDispatchService {
             response.put("message", "Pathfinding failed for batch");
             return response;
         }
+        
+        // Log which drones the planner selected
+        logger.info("📋 Planner selected {} drone(s) for batch:", result.getDronePaths().size());
+        for (DronePathResult pathResult : result.getDronePaths()) {
+            logger.info("   → Drone {} assigned {} deliveries", 
+                    pathResult.getDroneId(), pathResult.getDeliveries().size());
+        }
 
         // Get base
         List<ServicePoint> servicePoints = servicePointService.fetchAllServicePoints();
@@ -75,14 +108,22 @@ public class DroneDispatchService {
                 new Position(servicePoints.get(0).getLocation().getLng(),
                         servicePoints.get(0).getLocation().getLat());
 
+        // Track successfully dispatched drones
+        int dispatchedDrones = 0;
+        List<String> skippedDrones = new ArrayList<>();
+        
         // For each drone in the plan, start a mission with the planned deliveries
         for (DronePathResult pathResult : result.getDronePaths()) {
-            Drone drone = droneService.getDroneById(pathResult.getDroneId());
+            String plannedDroneId = pathResult.getDroneId();
+            Drone drone = droneService.getDroneById(plannedDroneId);
+            
             if (drone == null) {
-                logger.error("❌ Drone {} not found for batch mission", pathResult.getDroneId());
+                logger.error("❌ Planned drone {} not found", plannedDroneId);
+                skippedDrones.add(plannedDroneId + " (not found)");
                 continue;
             }
-            // Find the MedDispatchRec objects for this drone's deliveries
+            
+            // Find the MedDispatchRec objects for this drone's deliveries FIRST
             List<MedDispatchRec> droneDispatches = new ArrayList<>();
             for (DeliveryResult dr : pathResult.getDeliveries()) {
                 for (MedDispatchRec rec : allDispatches) {
@@ -92,16 +133,74 @@ public class DroneDispatchService {
                     }
                 }
             }
+            
+            // Check if planned drone is already active - if so, find alternative
+            if (activeDrones.containsKey(drone.getId())) {
+                logger.warn("⚠️ Planned drone {} is BUSY - searching for alternative...", drone.getId());
+                
+                Drone alternativeDrone = findAlternativeDrone(
+                        allDrones, 
+                        drone.getCapability(), 
+                        droneDispatches
+                );
+                
+                if (alternativeDrone != null) {
+                    logger.info("✅ Found alternative: Drone {} will replace busy Drone {}", 
+                            alternativeDrone.getId(), plannedDroneId);
+                    drone = alternativeDrone; // Use alternative instead
+                } else {
+                    logger.error("❌ No alternative drone available (planned: {})", plannedDroneId);
+                    skippedDrones.add(plannedDroneId + " (busy, no alternatives available)");
+                    continue;
+                }
+            } else {
+                logger.info("✅ Using planned drone {} (available)", drone.getId());
+            }
+            
+            // Mark drone as unavailable IMMEDIATELY
+            ActiveDroneState placeholderState = new ActiveDroneState(
+                    drone.getId(),
+                    -1,
+                    List.of(new LngLat(base.getLng(), base.getLat())),
+                    drone.getCapability().getCapacity(),
+                    0,
+                    batchRequest.getBatchId(),
+                    droneDispatches.size()
+            );
+            placeholderState.setStatus("PENDING");
+            activeDrones.put(drone.getId(), placeholderState);
+            logger.info("🔒 Drone {} marked as unavailable for batch {}", drone.getId(), batchRequest.getBatchId());
+            
             // Use the planned order and path
             startBatchMission(drone, droneDispatches, base, batchRequest.getBatchId());
+            dispatchedDrones++;
+        }
+
+        // Check if we successfully dispatched any drones
+        if (dispatchedDrones == 0) {
+            logger.error("❌ Failed to dispatch any drones for batch {}. Skipped: {}", 
+                    batchRequest.getBatchId(), skippedDrones);
+            response.put("success", false);
+            response.put("message", "No drones available. All drones are currently busy. Skipped: " + skippedDrones);
+            response.put("skippedDrones", skippedDrones);
+            return response;
+        }
+
+        logger.info("✅ Successfully dispatched {} drone(s) for batch {}", dispatchedDrones, batchRequest.getBatchId());
+        if (!skippedDrones.isEmpty()) {
+            logger.warn("⚠️ Skipped {} drone(s): {}", skippedDrones.size(), skippedDrones);
         }
 
         response.put("success", true);
         response.put("batchId", batchRequest.getBatchId());
         response.put("deliveryCount", allDispatches.size());
+        response.put("dispatchedDrones", dispatchedDrones);
+        if (!skippedDrones.isEmpty()) {
+            response.put("skippedDrones", skippedDrones);
+        }
+        broadcastSystemState();
         return response;
     }
-// ...existing code...
 
     /**
      * Submit a single delivery
@@ -157,7 +256,25 @@ public class DroneDispatchService {
 
         logger.info("✅ Selected drone {} for delivery {}", selectedDrone.getId(), deliveryId);
 
-        // Start single delivery mission
+        // CRITICAL FIX: Mark drone as unavailable IMMEDIATELY to prevent race conditions
+        // Create a placeholder state that will be replaced when mission actually starts
+        ActiveDroneState placeholderState = new ActiveDroneState(
+                selectedDrone.getId(),
+                deliveryId,
+                List.of(new LngLat(base.getLng(), base.getLat())), // Placeholder path
+                selectedDrone.getCapability().getCapacity(),
+                dispatch.getRequirements().getCapacity(),
+                null,
+                1
+        );
+        placeholderState.setStatus("PENDING");
+        activeDrones.put(selectedDrone.getId(), placeholderState);
+        logger.info("🔒 Drone {} marked as unavailable (PENDING)", selectedDrone.getId());
+        
+        // Broadcast system state immediately so frontend knows drone is taken
+        broadcastSystemState();
+
+        // Start single delivery mission (async - will replace placeholder state)
         startSingleDeliveryMission(selectedDrone, dispatch, base);
 
         return new DeliverySubmissionResult(
@@ -178,53 +295,57 @@ public class DroneDispatchService {
         logger.info("🚁 Starting BATCH mission: Drone {} → {} deliveries in ONE flight", 
                 droneId, allDispatches.size());
 
-        // Plan ALL deliveries together - this chains them!
-        CalcDeliveryResult result = plannerService.calcDeliveryPath(allDispatches);
-
-        if (result.getDronePaths() == null || result.getDronePaths().isEmpty()) {
-            logger.error("❌ Pathfinding failed for batch {}", batchId);
-            broadcastBatchFailed(batchId, droneId, "Pathfinding failed");
-            return;
-        }
-
-        DronePathResult pathResult = result.getDronePaths().get(0);
-        List<DeliveryResult> deliveryResults = pathResult.getDeliveries();
-
-        if (deliveryResults.isEmpty()) {
-            logger.error("❌ No delivery paths for batch {}", batchId);
-            broadcastBatchFailed(batchId, droneId, "No valid paths");
-            return;
-        }
-
-        // Build complete flight path by chaining all delivery paths
-        List<LngLat> completePath = new ArrayList<>();
-        for (int i = 0; i < deliveryResults.size(); i++) {
-            List<LngLat> deliveryPath = deliveryResults.get(i).getFlightPath();
-            if (i == 0) {
-                completePath.addAll(deliveryPath);
-            } else {
-                // Skip first point (duplicate of last point from previous delivery)
-                completePath.addAll(deliveryPath.subList(1, deliveryPath.size()));
-            }
-        }
-
-        logger.info("✈️ Batch {} flight path: {} waypoints for {} deliveries", 
-                batchId, completePath.size(), deliveryResults.size());
-
-        ActiveDroneState state = new ActiveDroneState(
-                droneId,
-                -1, // No single delivery ID for batch
-                completePath,
-                drone.getCapability().getCapacity(),
-                0, // Will be updated
-                batchId,
-                allDispatches.size()
-        );
-
-        activeDrones.put(droneId, state);
-        broadcastSystemState();
-
         try {
+            // Plan ALL deliveries together - this chains them!
+            CalcDeliveryResult result = plannerService.calcDeliveryPath(allDispatches);
+
+            if (result.getDronePaths() == null || result.getDronePaths().isEmpty()) {
+                logger.error("❌ Pathfinding failed for batch {}", batchId);
+                activeDrones.remove(droneId);
+                broadcastSystemState();
+                broadcastBatchFailed(batchId, droneId, "Pathfinding failed");
+                return;
+            }
+
+            DronePathResult pathResult = result.getDronePaths().get(0);
+            List<DeliveryResult> deliveryResults = pathResult.getDeliveries();
+
+            if (deliveryResults.isEmpty()) {
+                logger.error("❌ No delivery paths for batch {}", batchId);
+                activeDrones.remove(droneId);
+                broadcastSystemState();
+                broadcastBatchFailed(batchId, droneId, "No valid paths");
+                return;
+            }
+
+            // Build complete flight path by chaining all delivery paths
+            List<LngLat> completePath = new ArrayList<>();
+            for (int i = 0; i < deliveryResults.size(); i++) {
+                List<LngLat> deliveryPath = deliveryResults.get(i).getFlightPath();
+                if (i == 0) {
+                    completePath.addAll(deliveryPath);
+                } else {
+                    // Skip first point (duplicate of last point from previous delivery)
+                    completePath.addAll(deliveryPath.subList(1, deliveryPath.size()));
+                }
+            }
+
+            logger.info("✈️ Batch {} flight path: {} waypoints for {} deliveries", 
+                    batchId, completePath.size(), deliveryResults.size());
+
+            ActiveDroneState state = new ActiveDroneState(
+                    droneId,
+                    -1, // No single delivery ID for batch
+                    completePath,
+                    drone.getCapability().getCapacity(),
+                    0, // Will be updated
+                    batchId,
+                    allDispatches.size()
+            );
+
+            activeDrones.put(droneId, state);
+            broadcastSystemState();
+
             for (int i = 0; i < completePath.size(); i++) {
                 if (!activeDrones.containsKey(droneId)) {
                     logger.warn("⚠️ Drone {} mission cancelled", droneId);
@@ -282,6 +403,12 @@ public class DroneDispatchService {
             activeDrones.remove(droneId);
             activeBatches.remove(batchId);
             broadcastSystemState();
+        } catch (Exception e) {
+            logger.error("❌ Batch {} mission failed with exception", batchId, e);
+            activeDrones.remove(droneId);
+            activeBatches.remove(batchId);
+            broadcastSystemState();
+            broadcastBatchFailed(batchId, droneId, "Mission failed: " + e.getMessage());
         }
     }
 
@@ -295,39 +422,43 @@ public class DroneDispatchService {
         
         logger.info("🚁 Starting SINGLE delivery mission: Drone {} → Delivery {}", droneId, deliveryId);
 
-        CalcDeliveryResult result = plannerService.calcDeliveryPath(List.of(dispatch));
-
-        if (result.getDronePaths() == null || result.getDronePaths().isEmpty()) {
-            logger.error("❌ Pathfinding failed for delivery {}", deliveryId);
-            broadcastDeliveryFailed(droneId, deliveryId, "Pathfinding failed");
-            return;
-        }
-
-        DronePathResult pathResult = result.getDronePaths().get(0);
-        if (pathResult.getDeliveries().isEmpty()) {
-            logger.error("❌ No delivery path for delivery {}", deliveryId);
-            broadcastDeliveryFailed(droneId, deliveryId, "No valid path");
-            return;
-        }
-
-        List<LngLat> flightPath = pathResult.getDeliveries().get(0).getFlightPath();
-
-        ActiveDroneState state = new ActiveDroneState(
-                droneId,
-                deliveryId,
-                flightPath,
-                drone.getCapability().getCapacity(),
-                dispatch.getRequirements().getCapacity(),
-                null,
-                1
-        );
-
-        activeDrones.put(droneId, state);
-        broadcastSystemState();
-
-        logger.info("✈️ Drone {} starting flight with {} waypoints", droneId, flightPath.size());
-
         try {
+            CalcDeliveryResult result = plannerService.calcDeliveryPath(List.of(dispatch));
+
+            if (result.getDronePaths() == null || result.getDronePaths().isEmpty()) {
+                logger.error("❌ Pathfinding failed for delivery {}", deliveryId);
+                activeDrones.remove(droneId);
+                broadcastSystemState();
+                broadcastDeliveryFailed(droneId, deliveryId, "Pathfinding failed");
+                return;
+            }
+
+            DronePathResult pathResult = result.getDronePaths().get(0);
+            if (pathResult.getDeliveries().isEmpty()) {
+                logger.error("❌ No delivery path for delivery {}", deliveryId);
+                activeDrones.remove(droneId);
+                broadcastSystemState();
+                broadcastDeliveryFailed(droneId, deliveryId, "No valid path");
+                return;
+            }
+
+            List<LngLat> flightPath = pathResult.getDeliveries().get(0).getFlightPath();
+
+            ActiveDroneState state = new ActiveDroneState(
+                    droneId,
+                    deliveryId,
+                    flightPath,
+                    drone.getCapability().getCapacity(),
+                    dispatch.getRequirements().getCapacity(),
+                    null,
+                    1
+            );
+
+            activeDrones.put(droneId, state);
+            broadcastSystemState();
+
+            logger.info("✈️ Drone {} starting flight with {} waypoints", droneId, flightPath.size());
+
             for (int i = 0; i < flightPath.size(); i++) {
                 if (!activeDrones.containsKey(droneId)) {
                     logger.warn("⚠️ Drone {} mission cancelled", droneId);
@@ -368,6 +499,11 @@ public class DroneDispatchService {
             Thread.currentThread().interrupt();
             activeDrones.remove(droneId);
             broadcastSystemState();
+        } catch (Exception e) {
+            logger.error("❌ Drone {} mission failed with exception", droneId, e);
+            activeDrones.remove(droneId);
+            broadcastSystemState();
+            broadcastDeliveryFailed(droneId, deliveryId, "Mission failed: " + e.getMessage());
         }
     }
 
@@ -389,6 +525,62 @@ public class DroneDispatchService {
         }
 
         return bestDrone;
+    }
+
+    /**
+     * Find an alternative drone with same/better capabilities that's not busy
+     */
+    private Drone findAlternativeDrone(List<Drone> allDrones, Capability requiredCapability, 
+                                        List<MedDispatchRec> dispatches) {
+        if (requiredCapability == null || dispatches == null || dispatches.isEmpty()) {
+            return null;
+        }
+
+        // Calculate total requirements from all dispatches
+        double totalCapacityNeeded = dispatches.stream()
+                .mapToDouble(d -> d.getRequirements().getCapacity())
+                .sum();
+        
+        boolean needsCooling = dispatches.stream()
+                .anyMatch(d -> d.getRequirements().isCooling());
+        
+        boolean needsHeating = dispatches.stream()
+                .anyMatch(d -> d.getRequirements().isHeating());
+
+        logger.info("🔍 Looking for drone with: capacity >= {}, cooling={}, heating={}", 
+                totalCapacityNeeded, needsCooling, needsHeating);
+
+        // Find available drones with matching capabilities
+        List<Drone> candidates = allDrones.stream()
+                .filter(drone -> !activeDrones.containsKey(drone.getId())) // Not busy
+                .filter(drone -> {
+                    Capability cap = drone.getCapability();
+                    if (cap == null) return false;
+                    if (cap.getCapacity() < totalCapacityNeeded - 0.01) return false;
+                    if (needsCooling && !cap.isCooling()) return false;
+                    if (needsHeating && !cap.isHeating()) return false;
+                    return true;
+                })
+                .sorted(Comparator.comparingDouble((Drone d) -> {
+                    // Sort by capacity (prefer closest match) and cost
+                    double capacityDiff = Math.abs(d.getCapability().getCapacity() - totalCapacityNeeded);
+                    double costFactor = d.getCapability().getCostPerMove() * 100;
+                    return capacityDiff + costFactor;
+                }))
+                .toList();
+
+        if (!candidates.isEmpty()) {
+            Drone alternative = candidates.get(0);
+            logger.info("✅ Found alternative drone: {} (capacity: {}, cooling: {}, heating: {})",
+                    alternative.getId(),
+                    alternative.getCapability().getCapacity(),
+                    alternative.getCapability().isCooling(),
+                    alternative.getCapability().isHeating());
+            return alternative;
+        }
+
+        logger.warn("❌ No alternative drones available with required capabilities");
+        return null;
     }
 
     private double calculateDistance(Position a, Position b) {

@@ -11,7 +11,6 @@ export default function useWebSocket() {
   const connectionAttempts = useRef(0);
   const isConnectingRef = useRef(false);
   const statusStableTimeoutRef = useRef(null);
-  const droneNumberMapRef = useRef(new Map()); // Track drone ID to number mapping
 
   useEffect(() => {
     const connect = () => {
@@ -51,13 +50,6 @@ export default function useWebSocket() {
               console.log('🚁 Drone update:', droneUpdate);
               
               setDrones(prevDrones => {
-                // Get or assign drone number
-                if (!droneNumberMapRef.current.has(droneUpdate.droneId)) {
-                  const nextNumber = droneNumberMapRef.current.size + 1;
-                  droneNumberMapRef.current.set(droneUpdate.droneId, nextNumber);
-                }
-                const droneNumber = droneNumberMapRef.current.get(droneUpdate.droneId);
-
                 // Remove completed drones after a delay
                 if (droneUpdate.status === 'COMPLETED') {
                   console.log('✅ Drone', droneUpdate.droneId, 'completed, will remove in 3 seconds');
@@ -72,7 +64,6 @@ export default function useWebSocket() {
                 
                 const updatedDrone = {
                   droneId: droneUpdate.droneId,
-                  droneNumber: droneNumber,
                   deliveryId: droneUpdate.deliveryId,
                   customerName: droneUpdate.batchId ? 
                     `${droneUpdate.batchId} (${droneUpdate.currentDeliveryInBatch || 1}/${droneUpdate.totalDeliveriesInBatch || 1})` :
