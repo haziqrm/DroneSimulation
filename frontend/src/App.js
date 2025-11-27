@@ -17,13 +17,11 @@ function App() {
     drone.status === 'IDLE' || drone.status === 'PENDING' || drone.status === 'DEPLOYING'
   );
 
-  // Handler to enable pin mode with a callback
   const enablePinMode = (callback) => {
     setIsPinMode(true);
     setOnCoordinateSelect(() => callback);
   };
 
-  // Handler when map is clicked
   const handleMapClick = (lat, lng) => {
     if (onCoordinateSelect) {
       onCoordinateSelect(lat, lng);
@@ -32,7 +30,6 @@ function App() {
     }
   };
 
-  // Cancel pin mode
   const cancelPinMode = () => {
     setIsPinMode(false);
     setOnCoordinateSelect(null);
@@ -41,7 +38,7 @@ function App() {
   return (
     <div className="app-container">
       <header className="header">
-        <h1>🚁 Drone Dispatch System</h1>
+        <h1>Drone Dispatch System</h1>
         <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
           {isConnected ? '● Connected' : '○ Disconnected'}
         </div>
@@ -54,8 +51,7 @@ function App() {
             isPinMode={isPinMode}
             cancelPinMode={cancelPinMode}
           />
-          
-          {/* Active Deliveries */}
+
           <div className="delivery-section">
             <h2>Active Deliveries ({activeDrones.length})</h2>
             {activeDrones.length === 0 ? (
@@ -75,7 +71,7 @@ function App() {
                       {drone.batchId && (
                         <div className="batch-info">
                           <span className="batch-badge">
-                            📦 {drone.batchId}
+                            {drone.batchId}
                           </span>
                           {drone.currentDeliveryInBatch && drone.totalDeliveriesInBatch && (
                             <span className="batch-progress-text">
@@ -103,7 +99,6 @@ function App() {
             )}
           </div>
 
-          {/* Pending Deliveries */}
           <div className="delivery-section">
             <h2>Pending Deliveries ({pendingDrones.length})</h2>
             {pendingDrones.length === 0 ? (
@@ -140,7 +135,7 @@ function App() {
           {isPinMode && (
             <div className="pin-mode-overlay">
               <div className="pin-mode-banner">
-                📍 Click on the map to select delivery location
+                Click on the map to select delivery location
                 <button className="btn-cancel-pin" onClick={cancelPinMode}>
                   Cancel
                 </button>

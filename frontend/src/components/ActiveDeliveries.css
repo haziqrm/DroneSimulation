@@ -8,7 +8,7 @@
   margin: 0 0 16px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: #dfdfdf;
 }
 
 .deliveries-list {
@@ -41,7 +41,7 @@
 .delivery-id {
   font-size: 15px;
   font-weight: 600;
-  color: #1f2937;
+  color: #dadada;
 }
 
 .delivery-status {
@@ -67,11 +67,11 @@
 }
 
 .info-label {
-  color: #6b7280;
+  color: #a5a5a5;
 }
 
 .info-value {
-  color: #1f2937;
+  color: #f8f8f8;
   font-weight: 500;
   font-family: 'Courier New', monospace;
   font-size: 12px;

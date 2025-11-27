@@ -13,7 +13,7 @@ const DroneList = ({ drones = [], selectedDroneId, onDroneSelect }) => {
   if (drones.length === 0) {
     return (
       <div className="drone-list">
-        <h3>🚁 Active Drones</h3>
+        <h3>Active Drones</h3>
         <div className="empty-state">
           <div className="empty-icon">🚁</div>
           <p>No active deliveries</p>
@@ -25,7 +25,7 @@ const DroneList = ({ drones = [], selectedDroneId, onDroneSelect }) => {
 
   return (
     <div className="drone-list">
-      <h3>🚁 Active Drones ({drones.length})</h3>
+      <h3>Active Drones ({drones.length})</h3>
       <div className="drone-cards">
         {drones.map(drone => {
           const config = statusConfig[drone.status] || { emoji: '🚁', color: '#6b7280' };

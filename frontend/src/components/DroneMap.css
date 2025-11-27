@@ -8,6 +8,7 @@
   height: 100%;
   width: 100%;
   background: #e5e7eb;
+  font-family: 'Orbitron';
 }
 
 .map-overlay {
@@ -35,12 +36,12 @@
 .map-message h3 {
   margin: 0 0 8px 0;
   font-size: 20px;
-  color: #1f2937;
+  color: #dfdfdf;
 }
 
 .map-message p {
   margin: 0;
-  color: #6b7280;
+  color: #e2e2e2;
   font-size: 14px;
 }
 

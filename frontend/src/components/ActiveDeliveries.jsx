@@ -13,9 +13,8 @@ const ActiveDeliveries = ({ deliveries = [] }) => {
   if (!deliveries || deliveries.length === 0) {
     return (
       <div className="active-deliveries">
-        <h3>📦 Active Deliveries</h3>
+        <h3>Active Deliveries</h3>
         <div className="empty-state">
-          <div className="empty-icon">📦</div>
           <p>No active deliveries</p>
           <small>Deliveries will appear here when dispatched</small>
         </div>
@@ -25,10 +24,10 @@ const ActiveDeliveries = ({ deliveries = [] }) => {
 
   return (
     <div className="active-deliveries">
-      <h3>📦 Active Deliveries ({deliveries.length})</h3>
+      <h3>Active Deliveries ({deliveries.length})</h3>
       <div className="delivery-cards">
         {deliveries.map(delivery => {
-          const config = statusConfig[delivery.status] || { emoji: '📦', color: '#6b7280' };
+          const config = statusConfig[delivery.status] || { emoji: '📦', color: '#d1d1d1ff' };
 
           return (
             <div

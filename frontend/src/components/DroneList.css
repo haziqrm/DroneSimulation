@@ -7,7 +7,7 @@
   margin: 0 0 16px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: #ececec;
 }
 
 .drone-cards {
@@ -48,7 +48,7 @@
 .drone-id {
   font-weight: 600;
   font-size: 15px;
-  color: #1f2937;
+  color: #e6e6e6;
 }
 
 .drone-status {
@@ -74,12 +74,12 @@
 }
 
 .info-label {
-  color: #6b7280;
+  color: #dddddd;
 }
 
 .info-value {
   font-weight: 600;
-  color: #1f2937;
+  color: #e4e4e4;
   font-family: 'Courier New', monospace;
   font-size: 12px;
 }

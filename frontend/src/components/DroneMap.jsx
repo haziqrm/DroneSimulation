@@ -1,16 +1,82 @@
+// FULL FILE: DroneMap.jsx
+
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMapEvents } from 'react-leaflet';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Polyline,
+  Polygon,
+  Popup,
+  useMapEvents
+} from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import './DroneMap.css';
 
-// Component to handle map clicks for pin mode
+import { FiBox } from "react-icons/fi";
+import { MdMedicalServices } from "react-icons/md";
+import { renderToStaticMarkup } from "react-dom/server";
+
+const iconToDivIcon = (icon, size = 40, bg = "#ffffff", color = "#000000", innerPct = 60) => {
+  let svgString = renderToStaticMarkup(icon);
+
+  svgString = svgString.replace(
+    /<svg([^>]*)>/,
+    (match, attrs) => {
+      if (/style=/.test(attrs)) {
+        return `<svg${attrs.replace(/style=(["'])(.*?)\1/, (m, q, cur) => {
+          const extra = 'display:block;width:100%;height:100%;';
+          if (cur.includes('display:block') || cur.includes('height:100%')) {
+            return `style=${q}${cur}${q}`;
+          }
+          return `style=${q}${extra}${cur}${q}`;
+        })}>`;
+      } else {
+        return `<svg${attrs} style="display:block;width:100%;height:100%;">`;
+      }
+    }
+  );
+
+  const html = `
+    <div style="
+      background: ${bg};
+      width: ${size}px;
+      height: ${size}px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      line-height: 0; /* remove baseline spacing */
+      overflow: hidden;
+    ">
+      <div style="
+        width: ${innerPct}%;
+        height: ${innerPct}%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        ${svgString}
+      </div>
+    </div>
+  `;
+
+  const rounded = Math.round(size / 2);
+  return L.divIcon({
+    html,
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [rounded, rounded]
+  });
+};
+
 const MapClickHandler = ({ isPinMode, onMapClick }) => {
   useMapEvents({
     click: (e) => {
       if (isPinMode && onMapClick) {
-        const { lat, lng } = e.latlng;
-        console.log('📍 Map clicked at:', lat, lng);
-        onMapClick(lat, lng);
+        onMapClick(e.latlng.lat, e.latlng.lng);
       }
     }
   });
@@ -23,450 +89,244 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
   const [flightPaths, setFlightPaths] = useState({});
   const [deliveryMarkers, setDeliveryMarkers] = useState({});
   const [completedPaths, setCompletedPaths] = useState({});
+  const [storedDestinations, setStoredDestinations] = useState({});
 
   const center = [55.9445, -3.1892];
 
-  // Fetch restricted areas from backend (to avoid CORS)
   useEffect(() => {
-    const fetchRestrictedAreas = async () => {
-      try {
-        console.log('🔍 Fetching restricted areas from backend...');
-        const response = await fetch('http://localhost:8080/api/v1/map/restricted-areas');
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const areas = await response.json();
-        console.log('✅ Restricted areas loaded:', areas.length);
-        setRestrictedAreas(areas);
-      } catch (error) {
-        console.error('❌ Error fetching restricted areas:', error);
-      }
-    };
-    fetchRestrictedAreas();
+    fetch("http://localhost:8080/api/v1/map/restricted-areas")
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(setRestrictedAreas)
+      .catch(console.error);
   }, []);
 
-  // Fetch service points from backend (to avoid CORS)
   useEffect(() => {
-    const fetchServicePoints = async () => {
-      try {
-        console.log('🏥 Fetching service points from backend...');
-        const response = await fetch('http://localhost:8080/api/v1/map/service-points');
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const points = await response.json();
-        console.log('✅ Service points loaded:', points.length, points);
-        setServicePoints(points);
-      } catch (error) {
-        console.error('❌ Error fetching service points:', error);
-      }
-    };
-    fetchServicePoints();
+    fetch("http://localhost:8080/api/v1/map/service-points")
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(setServicePoints)
+      .catch(console.error);
   }, []);
 
-  // Add a new state to store destinations persistently
-  const [storedDestinations, setStoredDestinations] = useState({});
-
-  // Update flight paths and delivery markers when drones update
   useEffect(() => {
-    console.log('🔄 Drone update - Processing', drones.length, 'drones');
-    
     drones.forEach(drone => {
-      // Store full route on first update
       if (drone.route && !flightPaths[drone.droneId]) {
-        console.log(`📍 Storing route for drone ${drone.droneId}: ${drone.route.length} waypoints`);
-        setFlightPaths(prev => ({
+        setFlightPaths(prev => ({ ...prev, [drone.droneId]: drone.route }));
+      }
+
+      if (drone.allDeliveryDestinations && !storedDestinations[drone.droneId]) {
+        setStoredDestinations(prev => ({
           ...prev,
-          [drone.droneId]: drone.route
+          [drone.droneId]: drone.allDeliveryDestinations
         }));
       }
 
-      // FIRST: Store destinations if this is the first update with them
-      if (drone.allDeliveryDestinations && drone.allDeliveryDestinations.length > 0) {
-        if (!storedDestinations[drone.droneId]) {
-          console.log(`💾 STORING destinations for drone ${drone.droneId}: ${drone.allDeliveryDestinations.length} locations`);
-          setStoredDestinations(prev => ({
-            ...prev,
-            [drone.droneId]: drone.allDeliveryDestinations
-          }));
-        }
-      }
-
-      // THEN: Update markers using stored destinations + current completion status
       const destinations = storedDestinations[drone.droneId];
-      if (destinations && destinations.length > 0) {
-        console.log(`🎯 Drone ${drone.droneId} - Completed: ${drone.currentDeliveryInBatch}/${drone.totalDeliveriesInBatch}`);
-        
-        const markers = destinations.map((dest, idx) => {
-          // currentDeliveryInBatch = how many deliveries have been PASSED
-          const isCompleted = idx < drone.currentDeliveryInBatch || drone.status === 'COMPLETED';
-          
-          console.log(`   Delivery ${idx + 1}: ${isCompleted ? '✅ GREEN' : '🔴 RED'} (completed: ${drone.currentDeliveryInBatch})`);
-          
-          return {
-            position: [dest[0], dest[1]],
-            deliveryId: drone.deliveryId !== -1 ? drone.deliveryId : `${drone.droneId}-${idx}`,
-            droneId: drone.droneId,
-            batchId: drone.batchId,
-            index: idx,
-            total: destinations.length,
-            completed: isCompleted
-          };
-        });
-        
-        // ALWAYS update markers to reflect completion status changes
+      if (destinations) {
+        const markers = destinations.map((dest, idx) => ({
+          position: [dest[0], dest[1]],
+          index: idx,
+          total: destinations.length,
+          completed: idx < drone.currentDeliveryInBatch || drone.status === 'COMPLETED'
+        }));
+
         setDeliveryMarkers(prev => ({
           ...prev,
           [drone.droneId]: markers
         }));
-        
-        console.log(`✅ Updated ${markers.length} delivery markers for drone ${drone.droneId}`);
       }
     });
 
-    const activeDroneIds = new Set(drones.map(d => d.droneId));
-    Object.keys(flightPaths).forEach(droneId => {
-      if (!activeDroneIds.has(droneId)) {
-        console.log(`🧹 Cleaning up completed drone ${droneId}`);
-        setCompletedPaths(prev => ({ ...prev, [droneId]: flightPaths[droneId] }));
-        
+    const activeIds = new Set(drones.map(d => d.droneId));
+    Object.keys(flightPaths).forEach(id => {
+      if (!activeIds.has(id)) {
+        setCompletedPaths(prev => ({ ...prev, [id]: flightPaths[id] }));
         setTimeout(() => {
           setCompletedPaths(prev => {
-            const updated = { ...prev };
-            delete updated[droneId];
-            return updated;
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
           });
           setFlightPaths(prev => {
-            const updated = { ...prev };
-            delete updated[droneId];
-            return updated;
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
           });
           setDeliveryMarkers(prev => {
-            const updated = { ...prev };
-            delete updated[droneId];
-            return updated;
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
           });
           setStoredDestinations(prev => {
-            const updated = { ...prev };
-            delete updated[droneId];
-            return updated;
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
           });
         }, 3000);
       }
     });
-  }, [drones, storedDestinations]);
+  }, [drones, storedDestinations, flightPaths]);
 
   const createDroneIcon = (droneId) => {
-    return L.divIcon({
-      html: `<div style="
-        background: #3498db;
-        color: white;
-        width: 32px;
-        height: 32px;
+    const size = 32;
+    const html = `
+      <div style="
+        background: white;
+        color: black;
+        width: ${size}px;
+        height: ${size}px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
         font-weight: bold;
-        font-size: 12px;
-        border: 2px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      ">${droneId}</div>`,
-      className: '',
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
-    });
-  };
-
-  const createDeliveryIcon = (completed, index, total) => {
-    const backgroundColor = completed ? '#27ae60' : '#e74c3c';
-    const emoji = '📦';
-    const label = total > 1 ? `${index + 1}` : '';
-    
-    return L.divIcon({
-      html: `<div style="
-        background: ${backgroundColor};
-        color: white;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        border: 3px solid white;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-        position: relative;
+        font-size: 14px;
+        line-height: 1; /* ensure text is vertically centered */
       ">
-        ${emoji}
-        ${label ? `<div style="
-          position: absolute;
-          top: -8px;
-          right: -8px;
-          background: #2c3e50;
-          color: white;
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 12px;
-          font-weight: bold;
-          border: 2px solid white;
-        ">${label}</div>` : ''}
-      </div>`,
-      className: '',
-      iconSize: [40, 40],
-      iconAnchor: [20, 20]
-    });
-  };
-
-  const createServicePointIcon = () => {
+        ${droneId}
+      </div>
+    `;
     return L.divIcon({
-      html: `<div style="
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-        border: 4px solid white;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      ">🏥</div>`,
-      className: '',
-      iconSize: [48, 48],
-      iconAnchor: [24, 24]
+      html,
+      className: "",
+      iconSize: [size, size],
+      iconAnchor: [Math.round(size / 2), Math.round(size / 2)]
     });
   };
 
-  console.log('🗺️ RENDERING MAP with:', {
-    servicePoints: servicePoints.length,
-    deliveryMarkers: Object.keys(deliveryMarkers).length,
-    restrictedAreas: restrictedAreas.length,
-    drones: drones.length,
-    isPinMode: isPinMode
-  });
+  const createDeliveryIcon = (completed) =>
+    iconToDivIcon(<FiBox size={28} color="white" />, 44, completed ? "#1ec46b" : "#ffb700", "white", 60);
+
+  const createServicePointIcon = () =>
+    iconToDivIcon(<MdMedicalServices size={34} />, 48, "#ffffff", "black", 62);
 
   return (
-    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+    <div style={{ height: "100%", width: "100%", position: "relative" }}>
       <MapContainer
         center={center}
         zoom={14}
-        style={{ 
-          height: '100%', 
-          width: '100%',
-          cursor: isPinMode ? 'crosshair' : 'default'
-        }}
+        style={{ height: "100%", width: "100%" }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; Stadia Maps"
+          url="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
         />
 
-        {/* Map Click Handler for Pin Mode */}
         <MapClickHandler isPinMode={isPinMode} onMapClick={onMapClick} />
 
-        {/* Restricted Areas - LOWEST LAYER */}
-        {restrictedAreas.map((area, index) => {
-          if (!area.vertices || !Array.isArray(area.vertices) || area.vertices.length < 3) {
-            return null;
-          }
-          
-          const positions = area.vertices
-            .filter(v => v && typeof v.lat === 'number' && typeof v.lng === 'number')
-            .map(v => [v.lat, v.lng]);
-
-          if (positions.length < 3) {
-            return null;
-          }
-
-          return (
-            <Polygon
-              key={`restricted-${area.id || index}`}
-              positions={positions}
-              pathOptions={{
-                color: '#e74c3c',
-                fillColor: '#fadbd8',
-                fillOpacity: 0.35,
-                weight: 2,
-                dashArray: '8, 4'
-              }}
-            >
-              <Popup>
-                <strong>🚫 Restricted Area</strong><br/>
-                {area.name || `Zone ${index + 1}`}
-              </Popup>
-            </Polygon>
-          );
-        })}
-
-        {/* Completed Flight Paths (fading) */}
-        {Object.entries(completedPaths).map(([droneId, path]) => (
-          <Polyline
-            key={`completed-${droneId}`}
-            positions={path}
+        {restrictedAreas.map((area, idx) => (
+          <Polygon
+            key={idx}
+            positions={(area.vertices || []).map(v => [v.lat, v.lng])}
             pathOptions={{
-              color: '#95a5a6',
-              weight: 2,
-              opacity: 0.3,
-              dashArray: '8, 4'
+              color: "#e74c3c",
+              fillColor: "#b45249",
+              fillOpacity: 0.35
             }}
-          />
+          >
+            <Popup>
+              <div style={{ textAlign: 'center' }}>
+                <strong>Restricted Area</strong><br />
+                {area.name || `Zone ${idx + 1}`}
+              </div>
+            </Popup>
+          </Polygon>
         ))}
 
-        {/* Active Flight Paths (pre-plotted) */}
-        {Object.entries(flightPaths).map(([droneId, path]) => (
-          <Polyline
-            key={`path-${droneId}`}
-            positions={path}
-            pathOptions={{
-              color: '#3498db',
-              weight: 2.5,
-              opacity: 0.5,
-              dashArray: '8, 4',
-              lineCap: 'round'
-            }}
-          />
-        ))}
-
-        {/* SERVICE POINTS - ALWAYS VISIBLE */}
-        {servicePoints.map((point, index) => {
-          if (!point || !point.location) {
-            return null;
-          }
-
-          const lat = point.location.lat;
-          const lng = point.location.lng;
-
-          if (typeof lat !== 'number' || typeof lng !== 'number') {
-            return null;
-          }
-
+        {servicePoints.map((p, i) => {
+          if (!p?.location) return null;
           return (
             <Marker
-              key={`service-${point.id || index}`}
-              position={[lat, lng]}
+              key={i}
+              position={[p.location.lat, p.location.lng]}
               icon={createServicePointIcon()}
               zIndexOffset={10000}
             >
               <Popup>
                 <div style={{ textAlign: 'center' }}>
-                  <strong>🏥 {point.name}</strong><br/>
-                  <small>Service Point #{point.id}</small><br/>
-                  <small>{lat.toFixed(4)}, {lng.toFixed(4)}</small>
+                  <strong> {p.name}</strong><br />
+                  <small>Service Point #{p.id}</small><br />
+                  <small>{p.location.lat.toFixed(4)}, {p.location.lng.toFixed(4)}</small>
                 </div>
               </Popup>
             </Marker>
           );
         })}
 
-        {/* DELIVERY DESTINATION MARKERS - ALL DESTINATIONS */}
-        {Object.entries(deliveryMarkers).map(([droneId, markers]) => {
-          console.log(`📍 Rendering ${markers.length} markers for drone ${droneId}`);
-          
-          return markers.map((marker, idx) => {
-            console.log(`   → Marker ${idx}: completed: ${marker.completed}`);
-            
-            return (
-              <Marker
-                key={`delivery-${droneId}-${idx}-${marker.completed ? 'done' : 'pending'}`}
-                position={marker.position}
-                icon={createDeliveryIcon(marker.completed, marker.index, marker.total)}
-                zIndexOffset={5000}
-              >
-                <Popup>
-                  <div style={{ textAlign: 'center' }}>
-                    <strong>{marker.completed ? '✅ Delivered' : '📦 Delivery Point'}</strong><br/>
-                    {marker.batchId && (
-                      <>
-                        <small>Batch: {marker.batchId}</small><br/>
-                        <small>Stop {marker.index + 1} of {marker.total}</small><br/>
-                      </>
-                    )}
-                    {!marker.batchId && (
-                      <>
-                        <small>Delivery #{marker.deliveryId}</small><br/>
-                      </>
-                    )}
-                    <small>Drone {marker.droneId}</small><br/>
-                    <small>{marker.position[0].toFixed(4)}, {marker.position[1].toFixed(4)}</small>
-                  </div>
-                </Popup>
-              </Marker>
-            );
-          });
-        })}
-
-        {/* Active Drones - ALWAYS ON TOP */}
-        {drones.map((drone) => (
+        {Object.values(deliveryMarkers).flat().map((m, i) => (
           <Marker
-            key={`drone-${drone.droneId}`}
+            key={i}
+            position={m.position}
+            icon={createDeliveryIcon(m.completed)}
+            zIndexOffset={5000}
+          >
+            <Popup>
+              <div style={{ textAlign: 'center' }}>
+                <strong>{m.completed ? 'Delivered' : 'Delivery Point'}</strong><br />
+                <small>Stop {m.index + 1} of {m.total}</small><br />
+                <small>{m.position[0].toFixed(4)}, {m.position[1].toFixed(4)}</small>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {Object.entries(flightPaths).map(([droneId, path]) => (
+          <Polyline
+            key={droneId}
+            positions={path}
+            pathOptions={{
+              color: "#ffffff",
+              weight: 2,
+              dashArray: "8,4"
+            }}
+          />
+        ))}
+
+        {Object.entries(completedPaths).map(([droneId, path]) => (
+          <Polyline
+            key={`completed-${droneId}`}
+            positions={path}
+            pathOptions={{
+              color: "#95a5a6",
+              weight: 2,
+              opacity: 0.35,
+              dashArray: "8,4"
+            }}
+          />
+        ))}
+
+        {drones.map(drone => (
+          <Marker
+            key={drone.droneId}
             position={[drone.latitude, drone.longitude]}
             icon={createDroneIcon(drone.droneId)}
             zIndexOffset={20000}
           >
             <Popup>
               <div style={{ textAlign: 'center' }}>
-                <strong>🚁 Drone {drone.droneId}</strong><br/>
-                <small>Status: {drone.status}</small><br/>
-                {drone.batchId && (
+                <strong>Drone {drone.droneId}</strong><br />
+                <small>Status: {drone.status}</small><br />
+                {drone.batchId ? (
                   <>
-                    <small>Batch: {drone.batchId}</small><br/>
-                    <small>Delivery {drone.currentDeliveryInBatch}/{drone.totalDeliveriesInBatch}</small><br/>
+                    <small>Batch: {drone.batchId}</small><br />
+                    <small>Delivery {drone.currentDeliveryInBatch}/{drone.totalDeliveriesInBatch}</small><br />
                   </>
+                ) : (
+                  <small>Delivery: #{drone.deliveryId}</small>
                 )}
-                {!drone.batchId && (
-                  <>
-                    <small>Delivery: #{drone.deliveryId}</small><br/>
-                  </>
-                )}
+                <br />
                 <small>Progress: {drone.progress?.toFixed(0)}%</small>
               </div>
             </Popup>
           </Marker>
         ))}
       </MapContainer>
-
-      {/* Debug Overlays */}
-      {servicePoints.length === 0 && (
-        <div style={{
-          position: 'absolute',
-          top: '10px',
-          right: '10px',
-          background: 'rgba(231, 76, 60, 0.9)',
-          color: 'white',
-          padding: '10px 15px',
-          borderRadius: '8px',
-          fontSize: '14px',
-          fontWeight: 'bold',
-          zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-        }}>
-          ⚠️ No service points loaded
-        </div>
-      )}
-      
-      {Object.keys(deliveryMarkers).length === 0 && drones.length > 0 && (
-        <div style={{
-          position: 'absolute',
-          top: '50px',
-          right: '10px',
-          background: 'rgba(243, 156, 18, 0.9)',
-          color: 'white',
-          padding: '10px 15px',
-          borderRadius: '8px',
-          fontSize: '14px',
-          fontWeight: 'bold',
-          zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-        }}>
-          ⚠️ No delivery markers (check backend logs)
-        </div>
-      )}
     </div>
   );
 };

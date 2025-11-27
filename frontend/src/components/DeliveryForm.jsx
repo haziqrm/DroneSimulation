@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { dispatchDrone, dispatchBatch } from '../utils/api';
+import '../components/DeliveryForm.css'
 
 const DELIVERY_PRESETS = [
   { name: "Princes Street", lat: 55.9520, lng: -3.1960 },
@@ -28,9 +29,9 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
     toLng: '',
     requiresCooling: false,
     requiresHeating: false,
-    capacity: 2.0, // Default 2kg
-    date: new Date().toISOString().split('T')[0], // Today's date
-    time: '12:00' // Default time
+    capacity: 2.0,
+    date: new Date().toISOString().split('T')[0],
+    time: '12:00'
   });
   const [orderCounter, setOrderCounter] = useState(1);
 
@@ -72,7 +73,6 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
     }
   };
 
-  // Handle pin button click
   const handlePinClick = () => {
     if (enablePinMode) {
       enablePinMode((lat, lng) => {
@@ -80,7 +80,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
           ...prev,
           toLat: lat.toFixed(4),
           toLng: lng.toFixed(4),
-          locationName: '' // Clear preset name when manually pinning
+          locationName: ''
         }));
       });
     }
@@ -105,17 +105,12 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
       return;
     }
 
-    if (lat < 55.9 || lat > 56.0 || lng < -3.4 || lng > -3.0) {
-      alert('Coordinates seem outside Edinburgh area. Please check.');
-      return;
-    }
-
     setOrderItems([...orderItems, {
       ...currentDelivery,
       toLat: lat,
       toLng: lng,
       id: Date.now(),
-      orderIndex: orderItems.length + 1 // Track position in batch
+      orderIndex: orderItems.length + 1
     }]);
 
     setCurrentDelivery({
@@ -126,13 +121,12 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
       requiresCooling: false,
       requiresHeating: false,
       capacity: 2.0,
-      date: currentDelivery.date, // Keep same date
-      time: currentDelivery.time  // Keep same time
+      date: currentDelivery.date,
+      time: currentDelivery.time
     });
   };
 
   const removeFromOrder = (id) => {
-    // Renumber remaining items
     const updatedItems = orderItems
       .filter(item => item.id !== id)
       .map((item, index) => ({
@@ -146,7 +140,6 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
     if (index === 0) return;
     const newItems = [...orderItems];
     [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
-    // Renumber
     newItems.forEach((item, idx) => {
       item.orderIndex = idx + 1;
     });
@@ -157,7 +150,6 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
     if (index === orderItems.length - 1) return;
     const newItems = [...orderItems];
     [newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]];
-    // Renumber
     newItems.forEach((item, idx) => {
       item.orderIndex = idx + 1;
     });
@@ -172,39 +164,35 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
     const itemsToDispatch = [...orderItems];
     const batchId = `ORDER-${orderCounter}`;
     setOrderCounter(prev => prev + 1);
-    setOrderItems([]); // Clear immediately so user can add more
+    setOrderItems([]);
 
-    console.log(`📦 Dispatching batch ${batchId} with ${itemsToDispatch.length} deliveries`);
+    console.log(`Dispatching batch ${batchId} with ${itemsToDispatch.length} deliveries`);
 
     try {
-      // Try to dispatch as a batch first
       const result = await dispatchBatch(itemsToDispatch, batchId);
       
       if (!result.success) {
-        console.error('❌ Batch dispatch failed:', result.message);
-        alert(`❌ Batch dispatch failed: ${result.message}\n\nTry again in a few seconds when drones are available.`);
-        
-        // Put items back in the queue
+        console.error('Batch dispatch failed:', result.message);
+        alert(`Batch dispatch failed: ${result.message}\n\nTry again in a few seconds when drones are available.`);
+
         setOrderItems(itemsToDispatch);
-        setOrderCounter(prev => prev - 1); // Revert counter
+        setOrderCounter(prev => prev - 1);
         return;
       }
       
-      console.log(`✅ Batch ${batchId} dispatched successfully:`, result);
-      
-      // Show notification if some drones were skipped
+      console.log(`Batch ${batchId} dispatched successfully:`, result);
+
       if (result.skippedDrones && result.skippedDrones.length > 0) {
-        console.warn(`⚠️ Some drones were skipped:`, result.skippedDrones);
-        alert(`⚠️ Batch dispatched, but ${result.skippedDrones.length} drone(s) were unavailable.\nDispatched: ${result.dispatchedDrones} drone(s)`);
+        console.warn(`Some drones were skipped:`, result.skippedDrones);
+        alert(`Batch dispatched, but ${result.skippedDrones.length} drone(s) were unavailable.\nDispatched: ${result.dispatchedDrones} drone(s)`);
       }
       
     } catch (error) {
-      console.error('❌ Batch dispatch failed with exception:', error);
-      alert(`❌ Failed to dispatch batch: ${error.message}\n\nAll drones may be busy. Try again in a few seconds.`);
-      
-      // Put items back in the queue
+      console.error('Batch dispatch failed with exception:', error);
+      alert(`Failed to dispatch batch: ${error.message}\n\nAll drones may be busy. Try again in a few seconds.`);
+
       setOrderItems(itemsToDispatch);
-      setOrderCounter(prev => prev - 1); // Revert counter
+      setOrderCounter(prev => prev - 1);
     }
   };
 
@@ -223,10 +211,9 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
         />
       </div>
 
-      {/* DATE AND TIME FIELDS */}
       <div className="coordinate-grid">
         <div className="form-group">
-          <label>📅 Delivery Date *</label>
+          <label>Delivery Date *</label>
           <input
             type="date"
             name="date"
@@ -236,7 +223,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
           />
         </div>
         <div className="form-group">
-          <label>🕐 Delivery Time *</label>
+          <label>Delivery Time *</label>
           <input
             type="time"
             name="time"
@@ -286,7 +273,6 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
         </div>
       </div>
 
-      {/* PIN BUTTON */}
       <div className="pin-button-container">
         <button 
           type="button"
@@ -294,7 +280,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
           onClick={isPinMode ? cancelPinMode : handlePinClick}
           title={isPinMode ? "Cancel pin mode" : "Click to pin location on map"}
         >
-          {isPinMode ? '✕ Cancel' : '📍 Pin on Map'}
+          {isPinMode ? '✕ Cancel' : 'Pin on Map'}
         </button>
         {isPinMode && (
           <div className="pin-helper">
@@ -328,7 +314,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
             checked={currentDelivery.requiresCooling}
             onChange={handleInputChange}
           />
-          <span>❄️ Requires Cooling</span>
+          <span>Requires Cooling</span>
         </label>
 
         <label className="checkbox-label">
@@ -338,7 +324,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
             checked={currentDelivery.requiresHeating}
             onChange={handleInputChange}
           />
-          <span>🔥 Requires Heating</span>
+          <span>Requires Heating</span>
         </label>
       </div>
 
@@ -348,7 +334,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
 
       {orderItems.length > 0 && (
         <div className="order-items">
-          <h3>📋 Delivery Sequence ({orderItems.length})</h3>
+          <h3>Delivery Sequence ({orderItems.length})</h3>
           <div className="order-sequence-info">
             Deliveries will be executed in this order ↓
           </div>
@@ -361,12 +347,12 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
                 <div className="order-item-info">
                   <strong>{item.customerName}</strong>
                   <div className="order-item-details">
-                    📍 {item.locationName || `${item.toLat.toFixed(4)}, ${item.toLng.toFixed(4)}`}
+                    {item.locationName || `${item.toLat.toFixed(4)}, ${item.toLng.toFixed(4)}`}
                   </div>
                   <div className="order-item-meta">
-                    📅 {item.date} at {item.time} • {item.capacity.toFixed(1)}kg
-                    {item.requiresCooling && ' • ❄️'}
-                    {item.requiresHeating && ' • 🔥'}
+                    {item.date} at {item.time} • {item.capacity.toFixed(1)}kg
+                    {item.requiresCooling}
+                    {item.requiresHeating}
                   </div>
                 </div>
                 <div className="order-controls">
@@ -405,7 +391,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
         onClick={dispatchOrder}
         disabled={orderItems.length === 0}
       >
-        🚀 Dispatch Order ({orderItems.length})
+        Dispatch Order ({orderItems.length})
       </button>
     </div>
   );

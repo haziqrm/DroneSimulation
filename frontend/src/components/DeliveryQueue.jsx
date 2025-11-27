@@ -13,7 +13,7 @@ function DeliveryQueue({ drones }) {
 
   return (
     <div className="delivery-queue">
-      <h3>📦 Active Deliveries</h3>
+      <h3>Active Deliveries</h3>
       {activeDeliveries.length === 0 ? (
         <div className="empty-state">
           <p>No active deliveries</p>
@@ -24,11 +24,11 @@ function DeliveryQueue({ drones }) {
             <li key={idx} className="delivery-item">
               <div className="delivery-header">
                 <span className="delivery-id">
-                  📦 Delivery #{delivery.deliveryId}
+                  Delivery #{delivery.deliveryId}
                 </span>
               </div>
               <div className="delivery-info">
-                <div>🚁 Drone {delivery.droneId}</div>
+                <div>Drone {delivery.droneId}</div>
                 <div className={`status-badge ${delivery.status.toLowerCase()}`}>
                   {delivery.status}
                 </div>
