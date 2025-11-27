@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -19,26 +20,35 @@ public class GroqService {
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
-    private final String apiKey;
+
+    @Value("${GROQ_API_KEY:}")  // ← CHANGED: Use @Value instead of System.getenv
+    private String apiKey;
 
     public GroqService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.apiKey = System.getenv("GROQ_API_KEY");
+        // WebClient initialization moved to @PostConstruct
+        this.webClient = null;
+    }
 
+    @jakarta.annotation.PostConstruct
+    public void init() {
         if (this.apiKey == null || this.apiKey.isEmpty()) {
-            logger.warn("GROQ_API_KEY not set! Get free key at: https://console.groq.com/keys");
+            logger.warn("⚠️ GROQ_API_KEY not set! Get free key at: https://console.groq.com/keys");
+        } else {
+            logger.info("✅ GROQ_API_KEY loaded successfully");
         }
+    }
 
-        this.webClient = WebClient.builder()
+    private WebClient getWebClient() {
+        if (webClient != null) return webClient;
+
+        return WebClient.builder()
                 .baseUrl(GROQ_API_URL)
                 .defaultHeader("Authorization", "Bearer " + (apiKey != null ? apiKey : ""))
                 .defaultHeader("Content-Type", "application/json")
                 .build();
     }
 
-    /**
-     * Send a chat message to Groq and get AI response
-     */
     public String chat(String userMessage, String systemContext) {
         if (apiKey == null || apiKey.isEmpty()) {
             return "❌ Groq API key not configured. Set GROQ_API_KEY environment variable.";
@@ -59,7 +69,7 @@ public class GroqService {
                     "stream", false
             );
 
-            String response = webClient.post()
+            String response = getWebClient().post()
                     .bodyValue(requestBody)
                     .retrieve()
                     .bodyToMono(String.class)
@@ -67,7 +77,6 @@ public class GroqService {
 
             logger.debug("Groq response: {}", response);
 
-            // Parse response
             JsonNode root = objectMapper.readTree(response);
             JsonNode choices = root.get("choices");
 
