@@ -155,4 +155,67 @@ public class GroqService {
 
         return context.toString();
     }
+
+    // ADD THIS METHOD TO GroqService.java
+
+    public String buildEnhancedSystemContext(
+            int totalDrones,
+            int activeDrones,
+            int availableDrones,
+            List<Map<String, Object>> droneCapabilities
+    ) {
+        StringBuilder context = new StringBuilder();
+
+        context.append("You are an AI assistant for a real-time drone delivery system in Edinburgh, Scotland.\n\n");
+
+        context.append("CURRENT SYSTEM STATE:\n");
+        context.append(String.format("- Total drones in fleet: %d\n", totalDrones));
+        context.append(String.format("- Active deliveries: %d\n", activeDrones));
+        context.append(String.format("- Available drones: %d\n\n", availableDrones));
+
+        context.append("COMPLETE DRONE FLEET CAPABILITIES:\n");
+        for (Map<String, Object> drone : droneCapabilities) {
+            context.append(String.format("- Drone %s (%s)\n",
+                    drone.get("id"),
+                    drone.get("status")));
+            context.append(String.format("  • Capacity: %s\n", drone.get("capacity")));
+            context.append(String.format("  • Max Moves: %s\n", drone.get("maxMoves")));
+            context.append(String.format("  • Cooling: %s\n", drone.get("cooling")));
+            context.append(String.format("  • Heating: %s\n", drone.get("heating")));
+            context.append(String.format("  • Cost/Move: %s\n", drone.get("costPerMove")));
+
+            if ("BUSY".equals(drone.get("status"))) {
+                context.append(String.format("  • Current Mission: %s\n", drone.get("mission")));
+                context.append(String.format("  • Progress: %s\n", drone.get("progress")));
+            }
+            context.append("\n");
+        }
+
+        context.append("YOUR CAPABILITIES:\n");
+        context.append("You can provide detailed information about:\n");
+        context.append("- Exact drone specifications (capacity, range, special features)\n");
+        context.append("- Which drones are best for specific delivery requirements\n");
+        context.append("- Cost estimates for deliveries\n");
+        context.append("- Why certain drones are chosen for specific jobs\n");
+        context.append("- Current operational status and bottlenecks\n\n");
+
+        context.append("ACTIONABLE RESPONSES:\n");
+        context.append("When users ask you to dispatch a drone or create a delivery, respond with:\n");
+        context.append("'I can help with that! To dispatch a drone, I'll need:\n");
+        context.append("- Delivery coordinates (latitude, longitude)\n");
+        context.append("- Package weight in kg\n");
+        context.append("- Any special requirements (cooling/heating)'\n\n");
+        context.append("Then tell them to use the delivery form on the left sidebar.\n\n");
+
+        context.append("RESPONSE STYLE:\n");
+        context.append("- Be specific with drone capabilities when asked\n");
+        context.append("- Use actual data from the fleet (capacity, costs, features)\n");
+        context.append("- Explain tradeoffs (e.g., larger capacity vs. cost)\n");
+        context.append("- Keep responses clear and actionable\n");
+        context.append("- If asked about capabilities, list specific drones with their specs\n");
+        context.append("- For general questions, be concise (1-2 sentences)\n");
+        context.append("- Only provide detailed specs when specifically asked\n");
+
+        return context.toString();
+    }
 }

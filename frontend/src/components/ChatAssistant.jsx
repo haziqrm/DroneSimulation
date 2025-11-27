@@ -6,13 +6,14 @@ const ChatAssistant = () => {
     {
       id: 1,
       role: 'assistant',
-      content: '👋 Hi! I\'m your AI mission advisor. Ask me anything about your drone operations!',
+      content: '👋 Hi! I\'m your AI mission advisor. I can see exact drone capabilities now! Ask me about specific drones, their specs, or recommendations.',
       timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [droneCapabilities, setDroneCapabilities] = useState([]);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -52,11 +53,17 @@ const ChatAssistant = () => {
 
       const data = await response.json();
 
+      // Store drone capabilities
+      if (data.droneCapabilities) {
+        setDroneCapabilities(data.droneCapabilities);
+      }
+
       const assistantMessage = {
         id: Date.now() + 1,
         role: 'assistant',
         content: data.message,
         systemState: data.systemState,
+        droneCapabilities: data.droneCapabilities,
         timestamp: new Date()
       };
 
@@ -85,14 +92,61 @@ const ChatAssistant = () => {
   };
 
   const quickQuestions = [
-    "What's the status of active drones?",
-    "Why is there a delay?",
-    "How many drones are available?",
-    "Explain the current deliveries"
+    "What drones have cooling capability?",
+    "Which drone has the highest capacity?",
+    "Show me all available drones",
+    "What's the status of active drones?"
   ];
 
   const askQuickQuestion = (question) => {
     setInput(question);
+  };
+
+  // NEW: Handle dispatch action
+  const handleDispatch = async (latitude, longitude, capacity, cooling, heating) => {
+    try {
+      const response = await fetch('http://localhost:8080/api/v1/chat/action/dispatch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          latitude,
+          longitude,
+          capacity,
+          cooling,
+          heating
+        })
+      });
+
+      const result = await response.json();
+      
+      // Add system message about dispatch
+      const dispatchMessage = {
+        id: Date.now(),
+        role: 'assistant',
+        content: result.message,
+        timestamp: new Date(),
+        isAction: true
+      };
+
+      setMessages(prev => [...prev, dispatchMessage]);
+
+      if (result.success) {
+        console.log('✅ Dispatch successful:', result);
+      }
+    } catch (error) {
+      console.error('❌ Dispatch action failed:', error);
+      
+      const errorMessage = {
+        id: Date.now(),
+        role: 'assistant',
+        content: '❌ Failed to dispatch drone. Please try using the delivery form.',
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+    }
   };
 
   return (
@@ -114,12 +168,56 @@ const ChatAssistant = () => {
               <div key={msg.id} className={`message ${msg.role}`}>
                 <div className="message-content">
                   {msg.content}
+                  
+                  {/* Action indicator */}
+                  {msg.isAction && (
+                    <div className="action-indicator">
+                      🚀 Action executed
+                    </div>
+                  )}
+                  
                   {msg.systemState && (
                     <div className="system-state">
                       <small>
                         📊 {msg.systemState.activeDrones} active • 
                         {msg.systemState.availableDrones} available
                       </small>
+                    </div>
+                  )}
+
+                  {/* NEW: Show drone capabilities table if included */}
+                  {msg.droneCapabilities && msg.droneCapabilities.length > 0 && (
+                    <div className="drone-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Status</th>
+                            <th>Capacity</th>
+                            <th>Moves</th>
+                            <th>Features</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {msg.droneCapabilities.map((drone, idx) => (
+                            <tr key={idx} className={drone.status === 'AVAILABLE' ? 'available' : 'busy'}>
+                              <td><strong>{drone.id}</strong></td>
+                              <td>
+                                <span className={`status-pill ${drone.status.toLowerCase()}`}>
+                                  {drone.status}
+                                </span>
+                              </td>
+                              <td>{drone.capacity}</td>
+                              <td>{drone.maxMoves}</td>
+                              <td className="features-cell">
+                                {drone.cooling === 'Yes' && <span title="Cooling">❄️</span>}
+                                {drone.heating === 'Yes' && <span title="Heating">🔥</span>}
+                                {drone.cooling === 'No' && drone.heating === 'No' && '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -163,7 +261,7 @@ const ChatAssistant = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Ask about drone operations..."
+              placeholder="Ask about drone capabilities..."
               rows="2"
               disabled={isLoading}
             />

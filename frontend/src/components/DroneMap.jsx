@@ -1,5 +1,3 @@
-// FULL FILE: DroneMap.jsx
-
 import React, { useEffect, useState } from 'react';
 import {
   MapContainer,

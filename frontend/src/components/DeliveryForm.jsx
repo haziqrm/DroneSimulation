@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { dispatchDrone, dispatchBatch } from '../utils/api';
 import '../components/DeliveryForm.css'
+import { useToast } from "../components/Toast";
 
 const DELIVERY_PRESETS = [
   { name: "Princes Street", lat: 55.9520, lng: -3.1960 },
@@ -22,6 +23,7 @@ const DELIVERY_PRESETS = [
 
 const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
   const [orderItems, setOrderItems] = useState([]);
+  const { showToast } = useToast(); 
   const [currentDelivery, setCurrentDelivery] = useState({
     customerName: '',
     locationName: '',
@@ -88,12 +90,12 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
 
   const addToOrder = () => {
     if (!currentDelivery.customerName || !currentDelivery.toLat || !currentDelivery.toLng) {
-      alert('Please fill in customer name and delivery coordinates');
+      showToast('Please fill in customer name and delivery coordinates', 'error');
       return;
     }
 
     if (!currentDelivery.date || !currentDelivery.time) {
-      alert('Please select delivery date and time');
+      showToast('Please select delivery date and time','error');
       return;
     }
 
@@ -101,7 +103,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
     const lng = parseFloat(currentDelivery.toLng);
 
     if (isNaN(lat) || isNaN(lng)) {
-      alert('Invalid coordinates. Please enter valid numbers.');
+      showToast('Invalid coordinates. Please enter valid numbers.','error');
       return;
     }
 
@@ -173,7 +175,7 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
       
       if (!result.success) {
         console.error('Batch dispatch failed:', result.message);
-        alert(`Batch dispatch failed: ${result.message}\n\nTry again in a few seconds when drones are available.`);
+        showToast(`Batch dispatch failed: ${result.message}\n\nTry again in a few seconds when drones are available.`,'error');
 
         setOrderItems(itemsToDispatch);
         setOrderCounter(prev => prev - 1);
@@ -184,12 +186,12 @@ const DeliveryForm = ({ enablePinMode, isPinMode, cancelPinMode }) => {
 
       if (result.skippedDrones && result.skippedDrones.length > 0) {
         console.warn(`Some drones were skipped:`, result.skippedDrones);
-        alert(`Batch dispatched, but ${result.skippedDrones.length} drone(s) were unavailable.\nDispatched: ${result.dispatchedDrones} drone(s)`);
+        showToast(`Batch dispatched, but ${result.skippedDrones.length} drone(s) were unavailable.\nDispatched: ${result.dispatchedDrones} drone(s)`,'error');
       }
       
     } catch (error) {
       console.error('Batch dispatch failed with exception:', error);
-      alert(`Failed to dispatch batch: ${error.message}\n\nAll drones may be busy. Try again in a few seconds.`);
+      showToast(`Failed to dispatch batch: ${error.message}\n\nAll drones may be busy. Try again in a few seconds.`,'error');
 
       setOrderItems(itemsToDispatch);
       setOrderCounter(prev => prev - 1);
