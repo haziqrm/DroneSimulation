@@ -126,7 +126,7 @@ function App() {
           </div>
         </div>
 
-        <div className="map-container">
+        <div className={`map-container ${isPinMode ? 'pin-mode-active' : ''}`}>
           <DroneMap 
             drones={drones} 
             isPinMode={isPinMode}

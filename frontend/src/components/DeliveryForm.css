@@ -15,6 +15,44 @@
 }
 
 /* =========================
+   MODERN SCROLLBAR STYLING
+========================= */
+.delivery-form,
+.order-list,
+.delivery-section .delivery-list {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.delivery-form::-webkit-scrollbar,
+.order-list::-webkit-scrollbar,
+.delivery-section .delivery-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.delivery-form::-webkit-scrollbar-track,
+.order-list::-webkit-scrollbar-track,
+.delivery-section .delivery-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.delivery-form::-webkit-scrollbar-thumb,
+.order-list::-webkit-scrollbar-thumb,
+.delivery-section .delivery-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.delivery-form::-webkit-scrollbar-thumb:hover,
+.order-list::-webkit-scrollbar-thumb:hover,
+.delivery-section .delivery-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+  background-clip: padding-box;
+}
+
+/* =========================
    FORM GROUPS
 ========================= */
 .form-group {
@@ -149,6 +187,7 @@
   justify-content: center;
   gap: 0.5rem;
   transition: all 0.2s;
+  font-family: 'Orbitron';
 }
 
 .btn-pin:hover {
@@ -159,6 +198,7 @@
 .btn-pin.active {
   background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
   animation: pulse 2s infinite;
+  font-family: 'Orbitron';
 }
 
 @keyframes pulse {
@@ -325,6 +365,7 @@
   font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
+  font-family: "Orbitron";
 }
 
 .btn-add:hover {
@@ -345,6 +386,7 @@
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   transition: all 0.3s ease;
+  font-family: "Orbitron";
 }
 
 .btn-dispatch:hover:not(:disabled) {

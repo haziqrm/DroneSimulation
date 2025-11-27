@@ -21,6 +21,39 @@ body {
   flex-direction: column;
 }
 
+/* =========================
+   MODERN SCROLLBAR STYLING
+========================= */
+.sidebar,
+.delivery-list {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.sidebar::-webkit-scrollbar,
+.delivery-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track,
+.delivery-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.delivery-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover,
+.delivery-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+  background-clip: padding-box;
+}
+
 /* Header */
 .header {
   background-color: #0f0f0f;
@@ -90,7 +123,7 @@ body {
 }
 
 .pin-mode-banner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #212121;
   color: white;
   padding: 1rem 2rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
@@ -100,6 +133,7 @@ body {
   font-weight: 600;
   font-size: 1rem;
   animation: slideDown 0.3s ease;
+  font-family: "Orbitron";
 }
 
 @keyframes slideDown {
@@ -117,6 +151,7 @@ body {
   background: rgba(255, 255, 255, 0.2);
   color: white;
   border: 2px solid white;
+  font-family: "Orbitron";
   padding: 0.5rem 1.5rem;
   border-radius: 6px;
   font-weight: 600;
@@ -128,6 +163,41 @@ body {
 .btn-cancel-pin:hover {
   background: white;
   color: #667eea;
+}
+
+/* Pin Mode - Custom Cursor */
+.map-container.pin-mode-active {
+  cursor: crosshair;
+}
+
+.map-container.pin-mode-active .leaflet-container {
+  cursor: crosshair !important;
+}
+
+/* Pulsing pin mode indicator overlay */
+.pin-mode-active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  border: 3px solid #ffffff;
+  border-radius: 8px;
+  animation: pinModePulse 2s infinite;
+  z-index: 999;
+}
+
+@keyframes pinModePulse {
+  0%, 100% {
+    border-color: rgba(184, 184, 184, 0.8);
+    box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.4);
+  }
+  50% {
+    border-color: rgb(255, 255, 255);
+    box-shadow: 0 0 20px 5px rgba(102, 126, 234, 0.6);
+  }
 }
 
 .delivery-form {
@@ -246,6 +316,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .delivery-card {

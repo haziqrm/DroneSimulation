@@ -76,6 +76,11 @@ public class DroneDispatchService {
         List<Position> deliveryDestinations = new ArrayList<>();
         List<MedDispatchRec> allDispatches = new ArrayList<>();
         
+        // Track batch requirements
+        boolean batchNeedsCooling = false;
+        boolean batchNeedsHeating = false;
+        double totalCapacity = 0;
+        
         for (DeliveryRequest delivery : batchRequest.getDeliveries()) {
             int deliveryId = deliveryIdCounter.getAndIncrement();
             
@@ -86,6 +91,11 @@ public class DroneDispatchService {
             logger.info("📍 Batch delivery #{}: destination = ({}, {})", 
                     deliveryId, delivery.getLatitude(), delivery.getLongitude());
             
+            // Track cooling/heating requirements and capacity
+            if (delivery.isCooling()) batchNeedsCooling = true;
+            if (delivery.isHeating()) batchNeedsHeating = true;
+            totalCapacity += delivery.getCapacity();
+            
             MedDispatchRec dispatch = new MedDispatchRec(
                     deliveryId,
                     "2025-11-11",
@@ -95,6 +105,63 @@ public class DroneDispatchService {
                     actualDestination
             );
             allDispatches.add(dispatch);
+        }
+        
+        // VALIDATION 1: Check for conflicting cooling/heating requirements
+        if (batchNeedsCooling && batchNeedsHeating) {
+            logger.error("❌ Batch {} requires both cooling AND heating - no drone can satisfy both requirements", 
+                    batchRequest.getBatchId());
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "Batch contains deliveries requiring both cooling AND heating. No drone has both capabilities. Please split into separate batches.");
+            return response;
+        }
+        
+        // VALIDATION 2: Check if any drone can handle this batch within max moves
+        List<ServicePoint> servicePoints = servicePointService.fetchAllServicePoints();
+        Position base = servicePoints.isEmpty() ?
+                new Position(-3.1892, 55.9445) :
+                new Position(servicePoints.get(0).getLocation().getLng(),
+                        servicePoints.get(0).getLocation().getLat());
+        
+        // Estimate minimum moves required (very rough estimate)
+        double totalDistance = 0;
+        Position current = base;
+        for (Position dest : deliveryDestinations) {
+            totalDistance += calculateDistance(current, dest);
+            current = dest;
+        }
+        totalDistance += calculateDistance(current, base); // return trip
+        
+        // Rough estimate: 1 move ≈ 0.00015 degrees
+        int estimatedMoves = (int) Math.ceil(totalDistance / 0.00015) + deliveryDestinations.size(); // +1 hover per delivery
+        
+        logger.info("📏 Estimated moves for batch: {} (total distance: {})", estimatedMoves, totalDistance);
+        
+        // Check if any drone has enough moves - use final copies for lambda
+        final double finalTotalCapacity = totalCapacity;
+        final boolean finalBatchNeedsCooling = batchNeedsCooling;
+        final boolean finalBatchNeedsHeating = batchNeedsHeating;
+        
+        int maxDroneMoves = allDrones.stream()
+                .filter(d -> d.getCapability() != null)
+                .filter(d -> d.getCapability().getCapacity() >= finalTotalCapacity)
+                .filter(d -> !finalBatchNeedsCooling || d.getCapability().isCooling())
+                .filter(d -> !finalBatchNeedsHeating || d.getCapability().isHeating())
+                .mapToInt(d -> d.getCapability().getMaxMoves())
+                .max()
+                .orElse(0);
+        
+        if (maxDroneMoves > 0 && estimatedMoves > maxDroneMoves) {
+            logger.error("❌ Batch {} estimated moves ({}) exceeds maximum drone capacity ({})", 
+                    batchRequest.getBatchId(), estimatedMoves, maxDroneMoves);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", String.format(
+                    "Batch deliveries require approximately %d moves, but maximum drone capacity is %d moves. Please reduce delivery locations or split into smaller batches.",
+                    estimatedMoves, maxDroneMoves
+            ));
+            return response;
         }
 
         // Use the exact same logic as calcDeliveryPathAsGeoJson
@@ -109,19 +176,24 @@ public class DroneDispatchService {
             return response;
         }
         
+        // Check if planned path exceeds max moves
+        if (result.getTotalMoves() > maxDroneMoves) {
+            logger.error("❌ Batch {} actual path ({} moves) exceeds maximum drone capacity ({})", 
+                    batchRequest.getBatchId(), result.getTotalMoves(), maxDroneMoves);
+            response.put("success", false);
+            response.put("message", String.format(
+                    "Planned delivery path requires %d moves, but maximum drone capacity is %d moves. Please reduce delivery locations or split into smaller batches.",
+                    result.getTotalMoves(), maxDroneMoves
+            ));
+            return response;
+        }
+        
         // Log which drones the planner selected
         logger.info("📋 Planner selected {} drone(s) for batch:", result.getDronePaths().size());
         for (DronePathResult pathResult : result.getDronePaths()) {
             logger.info("   → Drone {} assigned {} deliveries", 
                     pathResult.getDroneId(), pathResult.getDeliveries().size());
         }
-
-        // Get base
-        List<ServicePoint> servicePoints = servicePointService.fetchAllServicePoints();
-        Position base = servicePoints.isEmpty() ?
-                new Position(-3.1892, 55.9445) :
-                new Position(servicePoints.get(0).getLocation().getLng(),
-                        servicePoints.get(0).getLocation().getLat());
 
         // Track successfully dispatched drones
         int dispatchedDrones = 0;
