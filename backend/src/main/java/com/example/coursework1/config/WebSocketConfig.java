@@ -10,7 +10,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // Simple broker without heartbeat (no TaskScheduler needed)
         config.enableSimpleBroker("/topic");
         config.setApplicationDestinationPrefixes("/app");
     }

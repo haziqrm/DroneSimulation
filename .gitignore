@@ -1,0 +1,21 @@
+# Environment Variables (IMPORTANT!)
+.env
+.env.local
+.env.*.local
+*.env
+
+# OS Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/

@@ -123,8 +123,8 @@ body {
 }
 
 .pin-mode-banner {
-  background: #212121;
-  color: white;
+  background: #fdfdfd;
+  color: rgb(19, 19, 19);
   padding: 1rem 2rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   display: flex;
@@ -148,8 +148,8 @@ body {
 }
 
 .btn-cancel-pin {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: rgba(0, 0, 0, 0.8);
+  color: rgb(255, 255, 255);
   border: 2px solid white;
   font-family: "Orbitron";
   padding: 0.5rem 1.5rem;
@@ -161,8 +161,7 @@ body {
 }
 
 .btn-cancel-pin:hover {
-  background: white;
-  color: #667eea;
+  background: rgb(60, 60, 60);
 }
 
 /* Pin Mode - Custom Cursor */

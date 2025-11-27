@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import DeliveryForm from './components/DeliveryForm';
 import DroneMap from './components/DroneMap';
+import ChatAssistant from './components/ChatAssistant';
 import useWebSocket from './hooks/useWebSocket';
 import './App.css';
 
@@ -144,6 +145,9 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* AI Chat Assistant - Floating */}
+      <ChatAssistant />
     </div>
   );
 }
