@@ -1,12 +1,9 @@
 const API_BASE = 'http://localhost:8080/api';
 const ILP_BASE = 'https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net';
 
-/**
- * Dispatch multiple deliveries as a batch to the same drone
- */
 export const dispatchBatch = async (deliveries, batchId) => {
-  console.log('🚀 Dispatching batch:', batchId);
-  console.log('📦 Deliveries:', deliveries.length);
+  console.log('Dispatching batch:', batchId);
+  console.log('Deliveries:', deliveries.length);
   
   try {
     const response = await fetch(`${API_BASE}/v1/submitBatch`, {
@@ -29,12 +26,12 @@ export const dispatchBatch = async (deliveries, batchId) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Batch dispatch failed:', errorText);
+      console.error('Batch dispatch failed:', errorText);
       throw new Error(`Failed to dispatch batch: ${errorText}`);
     }
 
     const result = await response.json();
-    console.log('✅ Batch dispatch result:', result);
+    console.log('Batch dispatch result:', result);
     
     if (!result.success) {
       throw new Error(result.message || 'Batch dispatch failed');
@@ -42,14 +39,11 @@ export const dispatchBatch = async (deliveries, batchId) => {
 
     return result;
   } catch (error) {
-    console.error('❌ Error in batch dispatch:', error);
+    console.error('Error in batch dispatch:', error);
     throw error;
   }
 };
 
-/**
- * Dispatch a single delivery
- */
 export const dispatchDrone = async (
   customerName, 
   fromLongitude, 
@@ -60,10 +54,10 @@ export const dispatchDrone = async (
   requiresHeating = false,
   capacity = 0
 ) => {
-  console.log('🚁 Dispatching drone for:', customerName);
-  console.log('📊 Capacity:', capacity, 'kg');
-  console.log('❄️ Cooling:', requiresCooling);
-  console.log('🔥 Heating:', requiresHeating);
+  console.log('Dispatching drone for:', customerName);
+  console.log('Capacity:', capacity, 'kg');
+  console.log('Cooling:', requiresCooling);
+  console.log('Heating:', requiresHeating);
   
   const requestBody = {
     customerName,
@@ -83,7 +77,7 @@ export const dispatchDrone = async (
     requestBody.capacity = capacity;
   }
 
-  console.log('📦 Request payload:', requestBody);
+  console.log('Request payload:', requestBody);
   
   const response = await fetch(`${API_BASE}/v1/submitDelivery`, {
     method: 'POST',
@@ -101,12 +95,12 @@ export const dispatchDrone = async (
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('❌ Server response:', errorText);
+    console.error('Server response:', errorText);
     throw new Error(`Failed to dispatch drone: ${errorText}`);
   }
 
   const result = await response.json();
-  console.log('✅ Dispatch result:', result);
+  console.log('Dispatch result:', result);
   
   if (!result.success) {
     throw new Error(result.message || 'Dispatch failed');
@@ -115,48 +109,42 @@ export const dispatchDrone = async (
   return result;
 };
 
-/**
- * Fetch restricted areas from ILP REST API
- */
 export const getRestrictedAreas = async () => {
-  console.log('📡 Fetching restricted areas from:', `${ILP_BASE}/restricted-areas`);
+  console.log('Fetching restricted areas from:', `${ILP_BASE}/restricted-areas`);
   
   try {
     const response = await fetch(`${ILP_BASE}/restricted-areas`);
     
     if (!response.ok) {
-      console.error('❌ Failed to fetch restricted areas:', response.status);
+      console.error('Failed to fetch restricted areas:', response.status);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const data = await response.json();
-    console.log('✅ Restricted areas response:', data);
+    console.log('Restricted areas response:', data);
     return data;
   } catch (error) {
-    console.error('❌ Error fetching restricted areas:', error);
+    console.error('Error fetching restricted areas:', error);
     throw error;
   }
 };
 
-/**
- * Fetch service points from ILP REST API
- */
 export const getServicePoints = async () => {
-  console.log('📡 Fetching service points from:', `${ILP_BASE}/service-points`);
+  console.log('Fetching service points from:', `${ILP_BASE}/service-points`);
   
   try {
     const response = await fetch(`${ILP_BASE}/service-points`);
     
     if (!response.ok) {
-      console.error('❌ Failed to fetch service points:', response.status);
+      console.error('Failed to fetch service points:', response.status);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const data = await response.json();
-    console.log('✅ Service points response:', data);
+    console.log('Service points response:', data);
     return data;
   } catch (error) {
-    console.error('❌ Error fetching service points:', error);
+    console.error('Error fetching service points:', error);
     throw error;
   }
 };

@@ -3,9 +3,6 @@ package com.example.coursework1.dto;
 import com.example.coursework1.service.DroneDispatchService.DeliveryRequest;
 import java.util.List;
 
-/**
- * DTO for batch delivery submissions
- */
 public class BatchDeliveryRequest {
     private String batchId;
     private List<DeliveryRequest> deliveries;

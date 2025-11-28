@@ -92,9 +92,6 @@ function App() {
                             style={{ width: `${drone.progress || 0}%` }}
                           />
                         </div>
-                        <div className="delivery-meta">
-                          Battery: {drone.battery?.toFixed(1) || 0}%
-                        </div>
                       </div>
                     </div>
                   ))}

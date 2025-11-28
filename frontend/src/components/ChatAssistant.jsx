@@ -1,19 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './ChatAssistant.css';
 
-const ChatAssistant = () => {
+const ChatAssistant = ({ onDispatchSuccess }) => {
   const [messages, setMessages] = useState([
     {
       id: 1,
       role: 'assistant',
-      content: '👋 Hi! I\'m your AI mission advisor. I can see exact drone capabilities now! Ask me about specific drones, their specs, or recommendations.',
+      content: '👋 Hi! I\'m your AI mission advisor with DIRECT dispatch capabilities. I can send drones immediately - just tell me where and what to deliver!',
       timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [droneCapabilities, setDroneCapabilities] = useState([]);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -23,6 +22,58 @@ const ChatAssistant = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const parseDispatchCommand = (text) => {
+    const latLngMatch = text.match(/(?:Dispatching to:|Destination:)\s*([\d.-]+),\s*([\d.-]+)/i);
+    const capacityMatch = text.match(/(?:Package:|Delivery:)\s*([\d.]+)\s*kg/i);
+    const coolingMatch = text.match(/with cooling|cooling:/i);
+    const heatingMatch = text.match(/with heating|heating:/i);
+
+    if (latLngMatch && capacityMatch) {
+      return {
+        latitude: parseFloat(latLngMatch[1]),
+        longitude: parseFloat(latLngMatch[2]),
+        capacity: parseFloat(capacityMatch[1]),
+        cooling: coolingMatch !== null,
+        heating: heatingMatch !== null
+      };
+    }
+
+    return null;
+  };
+
+  const executeDispatch = async (dispatchData) => {
+    try {
+      console.log('AI executing dispatch:', dispatchData);
+      
+      const response = await fetch('http://localhost:8080/api/v1/chat/action/dispatch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(dispatchData)
+      });
+
+      const result = await response.json();
+      console.log('Dispatch result:', result);
+
+      if (result.success && onDispatchSuccess) {
+        onDispatchSuccess(result);
+      }
+
+    } catch (error) {
+      console.error('Dispatch action failed:', error);
+
+      const errorMessage = {
+        id: Date.now(),
+        role: 'assistant',
+        content: 'Failed to execute dispatch. Backend error - check console.',
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+    }
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -53,11 +104,6 @@ const ChatAssistant = () => {
 
       const data = await response.json();
 
-      // Store drone capabilities
-      if (data.droneCapabilities) {
-        setDroneCapabilities(data.droneCapabilities);
-      }
-
       const assistantMessage = {
         id: Date.now() + 1,
         role: 'assistant',
@@ -68,13 +114,20 @@ const ChatAssistant = () => {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+
+      const dispatchData = parseDispatchCommand(data.message);
+      if (dispatchData) {
+        console.log('AI dispatch detected:', dispatchData);
+        executeDispatch(dispatchData);
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       
       const errorMessage = {
         id: Date.now() + 1,
         role: 'assistant',
-        content: '❌ Sorry, I encountered an error. Make sure the backend is running and GROQ_API_KEY is set.',
+        content: 'Sorry, I encountered an error. Make sure the backend is running and GROQ_API_KEY is set.',
         timestamp: new Date()
       };
 
@@ -92,69 +145,21 @@ const ChatAssistant = () => {
   };
 
   const quickQuestions = [
-    "What drones have cooling capability?",
-    "Which drone has the highest capacity?",
-    "Show me all available drones",
-    "What's the status of active drones?"
+    "Send 3kg with cooling to Princes Street",
+    "Dispatch 5kg to Edinburgh Castle",
+    "Show all available drones",
+    "What's the status of active deliveries?"
   ];
 
   const askQuickQuestion = (question) => {
     setInput(question);
   };
 
-  // NEW: Handle dispatch action
-  const handleDispatch = async (latitude, longitude, capacity, cooling, heating) => {
-    try {
-      const response = await fetch('http://localhost:8080/api/v1/chat/action/dispatch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          latitude,
-          longitude,
-          capacity,
-          cooling,
-          heating
-        })
-      });
-
-      const result = await response.json();
-      
-      // Add system message about dispatch
-      const dispatchMessage = {
-        id: Date.now(),
-        role: 'assistant',
-        content: result.message,
-        timestamp: new Date(),
-        isAction: true
-      };
-
-      setMessages(prev => [...prev, dispatchMessage]);
-
-      if (result.success) {
-        console.log('✅ Dispatch successful:', result);
-      }
-    } catch (error) {
-      console.error('❌ Dispatch action failed:', error);
-      
-      const errorMessage = {
-        id: Date.now(),
-        role: 'assistant',
-        content: '❌ Failed to dispatch drone. Please try using the delivery form.',
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
-    }
-  };
-
   return (
     <div className={`chat-assistant ${isExpanded ? 'expanded' : 'collapsed'}`}>
       <div className="chat-header" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="chat-title">
-          <span className="chat-icon">🤖</span>
-          <span>AI Mission Advisor</span>
+          <span>AI Mission Control</span>
         </div>
         <button className="chat-toggle">
           {isExpanded ? '−' : '+'}
@@ -169,23 +174,15 @@ const ChatAssistant = () => {
                 <div className="message-content">
                   {msg.content}
                   
-                  {/* Action indicator */}
-                  {msg.isAction && (
-                    <div className="action-indicator">
-                      🚀 Action executed
-                    </div>
-                  )}
-                  
                   {msg.systemState && (
                     <div className="system-state">
                       <small>
-                        📊 {msg.systemState.activeDrones} active • 
+                        {msg.systemState.activeDrones} active • 
                         {msg.systemState.availableDrones} available
                       </small>
                     </div>
                   )}
 
-                  {/* NEW: Show drone capabilities table if included */}
                   {msg.droneCapabilities && msg.droneCapabilities.length > 0 && (
                     <div className="drone-table">
                       <table>
@@ -210,8 +207,8 @@ const ChatAssistant = () => {
                               <td>{drone.capacity}</td>
                               <td>{drone.maxMoves}</td>
                               <td className="features-cell">
-                                {drone.cooling === 'Yes' && <span title="Cooling">❄️</span>}
-                                {drone.heating === 'Yes' && <span title="Heating">🔥</span>}
+                                {drone.cooling === 'Yes' && <span title="Cooling">C</span>}
+                                {drone.heating === 'Yes' && <span title="Heating">H</span>}
                                 {drone.cooling === 'No' && drone.heating === 'No' && '—'}
                               </td>
                             </tr>
@@ -261,7 +258,7 @@ const ChatAssistant = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Ask about drone capabilities..."
+              placeholder="How many drones are available currently..."
               rows="2"
               disabled={isLoading}
             />

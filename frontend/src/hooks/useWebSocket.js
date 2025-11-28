@@ -15,12 +15,12 @@ export default function useWebSocket() {
   useEffect(() => {
     const connect = () => {
       if (isConnectingRef.current || (stompClientRef.current && stompClientRef.current.connected)) {
-        console.log('⏭️ Skipping connection attempt - already connected/connecting');
+        console.log('Skipping connection attempt - already connected/connecting');
         return;
       }
 
       isConnectingRef.current = true;
-      console.log('🔌 Attempting WebSocket connection...');
+      console.log('Attempting WebSocket connection...');
 
       const socket = new SockJS('http://localhost:8080/ws');
       const stompClient = new Client({
@@ -34,7 +34,7 @@ export default function useWebSocket() {
           }
         },
         onConnect: () => {
-          console.log('✅ WebSocket connected successfully');
+          console.log('WebSocket connected successfully');
           connectionAttempts.current = 0;
           isConnectingRef.current = false;
           
@@ -43,23 +43,20 @@ export default function useWebSocket() {
             setIsConnected(true);
           }, 500);
 
-          // Subscribe to drone updates
           stompClient.subscribe('/topic/drone-updates', (message) => {
             try {
               const droneUpdate = JSON.parse(message.body);
-              console.log('🚁 Drone update:', droneUpdate);
+              console.log('Drone update:', droneUpdate);
               
               setDrones(prevDrones => {
-                // Remove completed drones after a delay
                 if (droneUpdate.status === 'COMPLETED') {
-                  console.log('✅ Drone', droneUpdate.droneId, 'completed, will remove in 3 seconds');
+                  console.log('Drone', droneUpdate.droneId, 'completed, will remove in 3 seconds');
                   setTimeout(() => {
                     setDrones(prev => prev.filter(d => d.droneId !== droneUpdate.droneId));
                   }, 3000);
                   return prevDrones;
                 }
 
-                // Update or add drone
                 const existingIndex = prevDrones.findIndex(d => d.droneId === droneUpdate.droneId);
                 
                 const updatedDrone = {
@@ -73,11 +70,10 @@ export default function useWebSocket() {
                   longitude: droneUpdate.longitude,
                   progress: (droneUpdate.progress || 0) * 100,
                   battery: 100 - ((droneUpdate.progress || 0) * 100),
-                  route: droneUpdate.route || null, // Full flight path
+                  route: droneUpdate.route || null,
                   deliveryLatitude: droneUpdate.deliveryLatitude || null,
                   deliveryLongitude: droneUpdate.deliveryLongitude || null,
-                  allDeliveryDestinations: droneUpdate.allDeliveryDestinations || null, // ALL delivery markers
-                  // Batch tracking
+                  allDeliveryDestinations: droneUpdate.allDeliveryDestinations || null,
                   batchId: droneUpdate.batchId,
                   currentDeliveryInBatch: droneUpdate.currentDeliveryInBatch,
                   totalDeliveriesInBatch: droneUpdate.totalDeliveriesInBatch
@@ -92,25 +88,24 @@ export default function useWebSocket() {
                 }
               });
             } catch (error) {
-              console.error('❌ Error parsing drone update:', error);
+              console.error('Error parsing drone update:', error);
             }
           });
 
-          // Start heartbeat
           if (heartbeatIntervalRef.current) {
             clearInterval(heartbeatIntervalRef.current);
           }
           heartbeatIntervalRef.current = setInterval(() => {
             if (stompClient.connected) {
-              console.log('💓 Connection alive');
+              console.log('Connection alive');
             } else {
-              console.warn('⚠️ Connection lost');
+              console.warn('Connection lost');
               clearInterval(heartbeatIntervalRef.current);
             }
           }, 30000);
         },
         onDisconnect: () => {
-          console.log('📴 WebSocket disconnected');
+          console.log('WebSocket disconnected');
           isConnectingRef.current = false;
           clearTimeout(statusStableTimeoutRef.current);
           setIsConnected(false);
@@ -120,13 +115,13 @@ export default function useWebSocket() {
           }
         },
         onStompError: (frame) => {
-          console.error('❌ STOMP error:', frame);
+          console.error('STOMP error:', frame);
           isConnectingRef.current = false;
           clearTimeout(statusStableTimeoutRef.current);
           setIsConnected(false);
         },
         onWebSocketError: (error) => {
-          console.error('❌ WebSocket error:', error);
+          console.error('WebSocket error:', error);
           isConnectingRef.current = false;
           clearTimeout(statusStableTimeoutRef.current);
           setIsConnected(false);
@@ -136,7 +131,7 @@ export default function useWebSocket() {
           }
           
           const delay = Math.min(5000 * Math.pow(2, connectionAttempts.current), 30000);
-          console.log(`🔄 Scheduling reconnect in ${delay}ms (attempt ${connectionAttempts.current + 1})`);
+          console.log(`Scheduling reconnect in ${delay}ms (attempt ${connectionAttempts.current + 1})`);
           connectionAttempts.current++;
           
           reconnectTimeoutRef.current = setTimeout(() => {
@@ -152,7 +147,7 @@ export default function useWebSocket() {
     connect();
 
     return () => {
-      console.log('🧹 Cleaning up WebSocket connection');
+      console.log('Cleaning up WebSocket connection');
       
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);

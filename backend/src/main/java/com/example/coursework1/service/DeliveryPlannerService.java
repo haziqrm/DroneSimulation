@@ -115,7 +115,6 @@ public class DeliveryPlannerService {
         Position current = base;
         int totalMoves = 0;
 
-        // FIXED: Add hover points to ALL deliveries (not just the last one)
         for (int deliveryIdx = 0; deliveryIdx < dispatches.size(); deliveryIdx++) {
             MedDispatchRec dispatch = dispatches.get(deliveryIdx);
             Position dest = dispatch.getDelivery();
@@ -137,7 +136,6 @@ public class DeliveryPlannerService {
                 return null;
             }
 
-            // Find closest point to destination
             int closestIndex = 0;
             double closestDist = Double.POSITIVE_INFINITY;
             for (int i = 0; i < pathToDest.size(); i++) {
@@ -152,16 +150,13 @@ public class DeliveryPlannerService {
 
             pathToDest = new ArrayList<>(pathToDest.subList(0, closestIndex + 1));
 
-            // Remove duplicate start point if not first delivery
             if (!allDeliveries.isEmpty() && !pathToDest.isEmpty()) {
                 pathToDest = new ArrayList<>(pathToDest.subList(1, pathToDest.size()));
             }
 
-            // CRITICAL FIX: Add hover point for EVERY delivery (not just the last)
-            // This marks the exact delivery location so markers can be placed
             LngLat hoverPoint = pathToDest.get(pathToDest.size() - 1);
             pathToDest.add(new LngLat(hoverPoint.getLng(), hoverPoint.getLat()));
-            logger.debug("✅ Added HOVER point for delivery {} at ({}, {})", 
+            logger.debug("Added HOVER point for delivery {} at ({}, {})",
                     dispatch.getId(), hoverPoint.getLat(), hoverPoint.getLng());
 
             current = new Position(pathToDest.get(pathToDest.size() - 1).getLng(), 
@@ -176,7 +171,6 @@ public class DeliveryPlannerService {
                     dispatch.getId(), steps, current.getLng(), current.getLat(), closestDist);
         }
 
-        // Final return to base from last delivery location
         List<LngLat> returnPath = buildPathAvoidingRestrictions(current, base);
         if (returnPath == null) {
             returnPath = buildPathWithRelaxedConstraints(current, base);
@@ -196,7 +190,6 @@ public class DeliveryPlannerService {
             return null;
         }
 
-        // Append return path to last delivery
         if (!allDeliveries.isEmpty()) {
             DeliveryResult lastDelivery = allDeliveries.get(allDeliveries.size() - 1);
             List<LngLat> lastPath = new ArrayList<>(lastDelivery.getFlightPath());
@@ -224,7 +217,6 @@ public class DeliveryPlannerService {
         int totalMoves = 0;
         List<DronePathResult> dronePaths = new ArrayList<>();
 
-        // Sort drones by capacity (descending)
         List<Drone> sortedDrones = new ArrayList<>(allDrones);
         sortedDrones.sort(Comparator.comparingDouble((Drone d) -> d.getCapability() != null ? d.getCapability().getCapacity() : 0).reversed());
 
@@ -273,7 +265,6 @@ public class DeliveryPlannerService {
 
                 logger.info("Drone {} has {} candidates for flight #{}", drone.getId(), candidates.size(), flightNumber);
 
-                // PHASE 1: Build chain of deliveries WITH hover points at each stop
                 while (!candidates.isEmpty() && movesLeft > 0) {
                     MedDispatchRec next = nearest(current, candidates);
                     if (next == null) break;
@@ -320,20 +311,17 @@ public class DeliveryPlannerService {
 
                     pathToDest = new ArrayList<>(pathToDest.subList(0, closestIndex + 1));
 
-                    // Remove duplicate start point if not first delivery
                     if (!flightDeliveries.isEmpty() && !pathToDest.isEmpty()) {
                         pathToDest = new ArrayList<>(pathToDest.subList(1, pathToDest.size()));
                     }
 
-                    // CRITICAL FIX: Add hover point for EVERY delivery
                     LngLat hoverPoint = pathToDest.get(pathToDest.size() - 1);
                     pathToDest.add(new LngLat(hoverPoint.getLng(), hoverPoint.getLat()));
-                    logger.debug("✅ Added HOVER point for delivery {} at ({}, {})",
+                    logger.debug("Added HOVER point for delivery {} at ({}, {})",
                             next.getId(), hoverPoint.getLat(), hoverPoint.getLng());
 
                     int toDest = pathToDest.size() - 1;
 
-                    // Calculate steps needed to return to base from this delivery
                     int stepsBackFromHere = estimateStepsBack(dest, base);
 
                     if (toDest + stepsBackFromHere > movesLeft) {
@@ -363,7 +351,6 @@ public class DeliveryPlannerService {
                     break;
                 }
 
-                // PHASE 2: Build return path and chain everything together
                 List<LngLat> returnPath = buildPathAvoidingRestrictions(current, base);
                 if (returnPath == null) {
                     returnPath = buildPathWithRelaxedConstraints(current, base);
@@ -382,11 +369,9 @@ public class DeliveryPlannerService {
                     break;
                 }
 
-                // Append return path to the last delivery
                 if (!flightDeliveries.isEmpty()) {
                     DeliveryResult lastDelivery = flightDeliveries.get(flightDeliveries.size() - 1);
                     List<LngLat> lastPath = new ArrayList<>(lastDelivery.getFlightPath());
-                    // Append return path
                     for (int i = 1; i < returnPath.size(); i++) {
                         lastPath.add(returnPath.get(i));
                     }
@@ -423,9 +408,6 @@ public class DeliveryPlannerService {
 
         return new CalcDeliveryResult(totalCost, totalMoves, dronePaths);
     }
-
-    // [Rest of the methods remain the same - buildPathAvoidingRestrictions, etc.]
-    // I'm truncating here for brevity, but all other methods stay identical
 
     private List<LngLat> buildPathAvoidingRestrictions(Position from, Position to) {
         if (from == null || to == null) {
@@ -694,7 +676,7 @@ public class DeliveryPlannerService {
         logger.info("Target in restricted area: {}", targetInRestricted);
 
         if (targetInRestricted) {
-            logger.error("⚠️ DELIVERY POINT IS INSIDE RESTRICTED AREA - CANNOT BE COMPLETED");
+            logger.error("DELIVERY POINT IS INSIDE RESTRICTED AREA - CANNOT BE COMPLETED");
             String areaName = restrictedAreaService.getRestrictedAreaNameForPath(target, target);
             logger.error("Restricted area: {}", areaName);
         }

@@ -133,16 +133,11 @@ public class SimpleController {
         return ResponseEntity.ok(geoJson);
     }
 
-    // ========== NEW REAL-TIME DISPATCH ENDPOINTS ==========
-
-    /**
-     * Submit a single delivery request - drone will be dispatched immediately
-     */
     @PostMapping("/submitDelivery")
     public ResponseEntity<DeliverySubmissionResult> submitDelivery(
             @RequestBody DeliveryRequest request) {
 
-        logger.info("📦 Received delivery submission: lat={}, lng={}, capacity={}, cooling={}, heating={}",
+        logger.info("Received delivery submission: lat={}, lng={}, capacity={}, cooling={}, heating={}",
                 request.getLatitude(), request.getLongitude(), request.getCapacity(),
                 request.isCooling(), request.isHeating());
 
@@ -151,9 +146,6 @@ public class SimpleController {
         return ResponseEntity.ok(result);
     }
 
-    /**
-     * Get current system status
-     */
     @GetMapping("/systemStatus")
     public ResponseEntity<Map<String, Object>> getSystemStatus() {
         Map<String, Object> status = Map.of(
@@ -172,9 +164,6 @@ public class SimpleController {
         return ResponseEntity.ok(status);
     }
 
-    /**
-     * Get list of available drones
-     */
     @GetMapping("/availableDrones")
     public ResponseEntity<List<Map<String, Object>>> getAvailableDrones() {
         List<Drone> allDrones = droneService.fetchAllDrones();
@@ -196,11 +185,10 @@ public class SimpleController {
 
     @PostMapping("submitBatch")
     public ResponseEntity<Map<String, Object>> submitBatch(@RequestBody BatchDeliveryRequest batchRequest) {
-        logger.info("📦 Received batch submission: {}", batchRequest.getBatchId());
-        logger.info("📊 Batch contains {} deliveries", batchRequest.getDeliveries().size());
+        logger.info("Received batch submission: {}", batchRequest.getBatchId());
+        logger.info("Batch contains {} deliveries", batchRequest.getDeliveries().size());
 
         try {
-            // Validate batch
             if (batchRequest.getDeliveries() == null || batchRequest.getDeliveries().isEmpty()) {
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("success", false);
@@ -208,7 +196,6 @@ public class SimpleController {
                 return ResponseEntity.ok(errorResponse);
             }
 
-            // Calculate total requirements
             double totalCapacity = 0;
             boolean requiresCooling = false;
             boolean requiresHeating = false;
@@ -219,10 +206,9 @@ public class SimpleController {
                 if (delivery.isHeating()) requiresHeating = true;
             }
 
-            logger.info("📊 Batch requirements - Total: {} kg, Cooling: {}, Heating: {}",
+            logger.info("Batch requirements - Total: {} kg, Cooling: {}, Heating: {}",
                     totalCapacity, requiresCooling, requiresHeating);
 
-            // Check max capacity
             if (totalCapacity > 20.0) {
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("success", false);
@@ -230,13 +216,12 @@ public class SimpleController {
                 return ResponseEntity.ok(errorResponse);
             }
 
-            // Submit batch
             Map<String, Object> result = droneDispatchService.submitBatch(batchRequest);
 
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
-            logger.error("❌ Error processing batch: {}", e.getMessage(), e);
+            logger.error("Error processing batch: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", "Failed to process batch: " + e.getMessage());

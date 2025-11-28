@@ -21,21 +21,20 @@ public class GroqService {
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
 
-    @Value("${GROQ_API_KEY:}")  // ← CHANGED: Use @Value instead of System.getenv
+    @Value("${GROQ_API_KEY:}")
     private String apiKey;
 
     public GroqService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        // WebClient initialization moved to @PostConstruct
         this.webClient = null;
     }
 
     @jakarta.annotation.PostConstruct
     public void init() {
         if (this.apiKey == null || this.apiKey.isEmpty()) {
-            logger.warn("⚠️ GROQ_API_KEY not set! Get free key at: https://console.groq.com/keys");
+            logger.warn("GROQ_API_KEY not set! Get free key at: https://console.groq.com/keys");
         } else {
-            logger.info("✅ GROQ_API_KEY loaded successfully");
+            logger.info("GROQ_API_KEY loaded successfully");
         }
     }
 
@@ -51,11 +50,11 @@ public class GroqService {
 
     public String chat(String userMessage, String systemContext) {
         if (apiKey == null || apiKey.isEmpty()) {
-            return "❌ Groq API key not configured. Set GROQ_API_KEY environment variable.";
+            return "Groq API key not configured. Set GROQ_API_KEY environment variable.";
         }
 
         try {
-            logger.info("💬 Sending message to Groq: {}", userMessage);
+            logger.info("Sending message to Groq: {}", userMessage);
 
             Map<String, Object> requestBody = Map.of(
                     "model", MODEL,
@@ -84,7 +83,7 @@ public class GroqService {
                 JsonNode message = choices.get(0).get("message");
                 if (message != null) {
                     String content = message.get("content").asText();
-                    logger.info("✅ Groq reply: {}", content);
+                    logger.info("Groq reply: {}", content);
                     return content;
                 }
             }
@@ -98,66 +97,6 @@ public class GroqService {
         }
     }
 
-    public String buildSystemContext(
-            int totalDrones,
-            int activeDrones,
-            int availableDrones,
-            List<String> activeDroneDetails,
-            List<String> recentEvents
-    ) {
-        StringBuilder context = new StringBuilder();
-
-        context.append("You are an AI assistant for a real-time drone delivery system in Edinburgh, Scotland.\n\n");
-
-        context.append("CURRENT SYSTEM STATE:\n");
-        context.append(String.format("- Total drones in fleet: %d\n", totalDrones));
-        context.append(String.format("- Active deliveries: %d\n", activeDrones));
-        context.append(String.format("- Available drones: %d\n", availableDrones));
-        context.append("\n");
-
-        if (!activeDroneDetails.isEmpty()) {
-            context.append("ACTIVE DRONES:\n");
-            for (String detail : activeDroneDetails) {
-                context.append("- ").append(detail).append("\n");
-            }
-            context.append("\n");
-        }
-
-        if (!recentEvents.isEmpty()) {
-            context.append("RECENT EVENTS:\n");
-            for (String event : recentEvents) {
-                context.append("- ").append(event).append("\n");
-            }
-            context.append("\n");
-        }
-
-        context.append("OPERATIONAL KNOWLEDGE:\n");
-        context.append("- Drones navigate around restricted areas (George Square, Bristo Square, etc.)\n");
-        context.append("- Each drone has capacity limits (4kg, 8kg, 12kg, or 20kg)\n");
-        context.append("- Some drones have cooling/heating capabilities\n");
-        context.append("- Maximum moves per drone varies (750-2000 moves)\n");
-        context.append("- Batch deliveries can have multiple stops in sequence\n");
-        context.append("- Drones return to base after completing deliveries\n");
-        context.append("\n");
-
-        context.append("YOUR ROLE:\n");
-        context.append("- Answer questions about drone operations clearly and concisely\n");
-        context.append("- Explain why drones behave certain ways (delays, routes, etc.)\n");
-        context.append("- Provide insights about delivery efficiency\n");
-        context.append("- Suggest optimizations when appropriate\n");
-        context.append("- Be friendly and helpful\n");
-        context.append("\n");
-
-        context.append("RESPONSE STYLE:\n");
-        context.append("- Keep responses under 3 sentences when possible\n");
-        context.append("- Use specific data from the context\n");
-        context.append("- Be professional but conversational\n");
-
-        return context.toString();
-    }
-
-    // ADD THIS METHOD TO GroqService.java
-
     public String buildEnhancedSystemContext(
             int totalDrones,
             int activeDrones,
@@ -166,16 +105,24 @@ public class GroqService {
     ) {
         StringBuilder context = new StringBuilder();
 
-        context.append("You are an AI assistant for a real-time drone delivery system in Edinburgh, Scotland.\n\n");
+        context.append("You are an AI mission advisor for a real-time drone delivery system in Edinburgh, Scotland.\n\n");
 
-        context.append("CURRENT SYSTEM STATE:\n");
-        context.append(String.format("- Total drones in fleet: %d\n", totalDrones));
+        context.append("=== YOUR CORE CAPABILITIES ===\n");
+        context.append("You have DIRECT API access to dispatch drones. When users ask you to send/dispatch/deliver:\n");
+        context.append("1. Extract delivery requirements (location, capacity, cooling/heating)\n");
+        context.append("2. Recommend the best available drone\n");
+        context.append("3. Tell the user you'll dispatch it immediately\n");
+        context.append("4. Provide them the coordinates and requirements you're using\n");
+        context.append("5. Frontend will execute the dispatch automatically\n\n");
+
+        context.append("=== CURRENT SYSTEM STATE ===\n");
+        context.append(String.format("- Total drones: %d\n", totalDrones));
         context.append(String.format("- Active deliveries: %d\n", activeDrones));
         context.append(String.format("- Available drones: %d\n\n", availableDrones));
 
-        context.append("COMPLETE DRONE FLEET CAPABILITIES:\n");
+        context.append("=== COMPLETE DRONE FLEET ===\n");
         for (Map<String, Object> drone : droneCapabilities) {
-            context.append(String.format("- Drone %s (%s)\n",
+            context.append(String.format("Drone %s (%s)\n",
                     drone.get("id"),
                     drone.get("status")));
             context.append(String.format("  • Capacity: %s\n", drone.get("capacity")));
@@ -191,30 +138,40 @@ public class GroqService {
             context.append("\n");
         }
 
-        context.append("YOUR CAPABILITIES:\n");
-        context.append("You can provide detailed information about:\n");
-        context.append("- Exact drone specifications (capacity, range, special features)\n");
-        context.append("- Which drones are best for specific delivery requirements\n");
-        context.append("- Cost estimates for deliveries\n");
-        context.append("- Why certain drones are chosen for specific jobs\n");
-        context.append("- Current operational status and bottlenecks\n\n");
+        context.append("=== DISPATCH EXAMPLES ===\n");
+        context.append("User: \"Send a 3kg delivery with cooling to Princes Street (55.9520, -3.1960)\"\n");
+        context.append("You: \"I'll dispatch that immediately! Drone 1 (4kg capacity, cooling capable) is perfect.\n");
+        context.append("Dispatching to: 55.9520, -3.1960\n");
+        context.append("Package: 3kg with cooling\"\n\n");
 
-        context.append("ACTIONABLE RESPONSES:\n");
-        context.append("When users ask you to dispatch a drone or create a delivery, respond with:\n");
-        context.append("'I can help with that! To dispatch a drone, I'll need:\n");
-        context.append("- Delivery coordinates (latitude, longitude)\n");
-        context.append("- Package weight in kg\n");
-        context.append("- Any special requirements (cooling/heating)'\n\n");
-        context.append("Then tell them to use the delivery form on the left sidebar.\n\n");
+        context.append("User: \"Deliver 10kg to Edinburgh Castle with heating\"\n");
+        context.append("You: \"Dispatching now! Using Drone 3 (12kg capacity, heating enabled).\n");
+        context.append("Destination: Edinburgh Castle (55.9486, -3.1999)\n");
+        context.append("Package: 10kg with heating\"\n\n");
 
-        context.append("RESPONSE STYLE:\n");
-        context.append("- Be specific with drone capabilities when asked\n");
-        context.append("- Use actual data from the fleet (capacity, costs, features)\n");
-        context.append("- Explain tradeoffs (e.g., larger capacity vs. cost)\n");
-        context.append("- Keep responses clear and actionable\n");
-        context.append("- If asked about capabilities, list specific drones with their specs\n");
-        context.append("- For general questions, be concise (1-2 sentences)\n");
-        context.append("- Only provide detailed specs when specifically asked\n");
+        context.append("=== KNOWN LOCATIONS ===\n");
+        context.append("- Princes Street: 55.9520, -3.1960\n");
+        context.append("- Edinburgh Castle: 55.9486, -3.1999\n");
+        context.append("- Royal Infirmary: 55.9213, -3.1359\n");
+        context.append("- Holyrood Palace: 55.9527, -3.1720\n");
+        context.append("- Arthur's Seat: 55.9444, -3.1618\n\n");
+
+        context.append("=== RESPONSE RULES ===\n");
+        context.append("1. When asked to dispatch: Be decisive and confirm the action immediately\n");
+        context.append("2. When asked about capabilities: Provide specific drone specs from the fleet\n");
+        context.append("3. When asked general questions: Be concise (1-2 sentences)\n");
+        context.append("4. NEVER say you \"can't\" dispatch - you have direct API access\n");
+        context.append("5. NEVER tell users to use the form - YOU can dispatch directly\n");
+        context.append("6. For dispatch requests: State the drone, location, and requirements clearly\n\n");
+
+        context.append("=== OPERATIONAL KNOWLEDGE ===\n");
+        context.append("- Drones navigate around restricted areas automatically\n");
+        context.append("- Capacities available: 4kg, 8kg, 12kg, 20kg\n");
+        context.append("- Max moves per drone: 750-2000\n");
+        context.append("- Some drones have cooling/heating, some have neither\n");
+        context.append("- Batch deliveries are supported for multi-stop routes\n\n");
+
+        context.append("Be helpful, decisive, and act like an autonomous agent with real dispatch capabilities!");
 
         return context.toString();
     }

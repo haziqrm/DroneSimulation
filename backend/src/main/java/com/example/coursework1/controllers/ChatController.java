@@ -42,15 +42,13 @@ public class ChatController {
             ));
         }
 
-        logger.info("💬 Received chat message: {}", userMessage);
+        logger.info("Received chat message: {}", userMessage);
 
         try {
-            // Gather COMPLETE system state with drone capabilities
             List<Drone> allDrones = droneService.fetchAllDrones();
             Map<String, DroneDispatchService.ActiveDroneState> activeDrones =
                     droneDispatchService.getActiveDrones();
 
-            // Build comprehensive drone capability list
             List<Map<String, Object>> droneCapabilities = new ArrayList<>();
             for (Drone drone : allDrones) {
                 boolean isActive = activeDrones.containsKey(drone.getId());
@@ -68,7 +66,6 @@ public class ChatController {
                     droneInfo.put("costPerMove", "$" + drone.getCapability().getCostPerMove());
                 }
 
-                // Add active mission details if busy
                 if (isActive) {
                     DroneDispatchService.ActiveDroneState state = activeDrones.get(drone.getId());
                     droneInfo.put("currentStatus", state.getStatus());
@@ -89,7 +86,6 @@ public class ChatController {
             int activeCount = activeDrones.size();
             int availableCount = totalDrones - activeCount;
 
-            // Build context with FULL drone details
             String systemContext = groqService.buildEnhancedSystemContext(
                     totalDrones,
                     activeCount,
@@ -99,20 +95,14 @@ public class ChatController {
 
             String aiResponse = groqService.chat(userMessage, systemContext);
 
-            // CRITICAL FIX: Only send table if user is asking about drones/capabilities
             String lowerMessage = userMessage.toLowerCase();
-            boolean isAskingAboutDrones =
-                    lowerMessage.contains("drone") ||
-                            lowerMessage.contains("fleet") ||
-                            lowerMessage.contains("capacity") ||
-                            lowerMessage.contains("cooling") ||
-                            lowerMessage.contains("heating") ||
-                            lowerMessage.contains("available") ||
-                            lowerMessage.contains("show") ||
-                            lowerMessage.contains("list") ||
-                            lowerMessage.contains("what") && lowerMessage.contains("have");
+            boolean isAskingForDroneTable =
+                    (lowerMessage.contains("show") || lowerMessage.contains("list") || lowerMessage.contains("what")) &&
+                            (lowerMessage.contains("drone") || lowerMessage.contains("fleet")) &&
+                            (lowerMessage.contains("have") || lowerMessage.contains("available") ||
+                                    lowerMessage.contains("capability") || lowerMessage.contains("capabilities") ||
+                                    lowerMessage.contains("spec") || lowerMessage.contains("all"));
 
-            // Return response
             Map<String, Object> response = new HashMap<>();
             response.put("message", aiResponse);
             response.put("systemState", Map.of(
@@ -121,27 +111,23 @@ public class ChatController {
                     "availableDrones", availableCount
             ));
 
-            // Only include table if asking about drones
-            if (isAskingAboutDrones) {
+            if (isAskingForDroneTable) {
                 response.put("droneCapabilities", droneCapabilities);
             }
 
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("❌ Error processing chat message", e);
+            logger.error("Error processing chat message", e);
             return ResponseEntity.status(500).body(Map.of(
                     "error", "Failed to process message: " + e.getMessage()
             ));
         }
     }
 
-    /**
-     * NEW: Dispatch action endpoint - triggered by AI
-     */
     @PostMapping("/action/dispatch")
     public ResponseEntity<Map<String, Object>> dispatchAction(@RequestBody Map<String, Object> request) {
-        logger.info("🚀 AI-triggered dispatch action: {}", request);
+        logger.info("AI-triggered dispatch action: {}", request);
 
         try {
             Double latitude = getDoubleValue(request, "latitude");
@@ -157,7 +143,6 @@ public class ChatController {
                 ));
             }
 
-            // Create delivery request
             DroneDispatchService.DeliveryRequest deliveryRequest = new DroneDispatchService.DeliveryRequest();
             deliveryRequest.setLatitude(latitude);
             deliveryRequest.setLongitude(longitude);
@@ -165,14 +150,13 @@ public class ChatController {
             deliveryRequest.setCooling(cooling);
             deliveryRequest.setHeating(heating);
 
-            // Submit delivery
             DroneDispatchService.DeliverySubmissionResult result =
                     droneDispatchService.submitDelivery(deliveryRequest);
 
             if (result.isSuccess()) {
                 return ResponseEntity.ok(Map.of(
                         "success", true,
-                        "message", "✅ Dispatched Drone " + result.getDroneId() + " for delivery #" + result.getDeliveryId(),
+                        "message", "Dispatched Drone " + result.getDroneId() + " for delivery #" + result.getDeliveryId(),
                         "droneId", result.getDroneId(),
                         "deliveryId", result.getDeliveryId()
                 ));
@@ -184,7 +168,7 @@ public class ChatController {
             }
 
         } catch (Exception e) {
-            logger.error("❌ Error in AI dispatch action", e);
+            logger.error("Error in AI dispatch action", e);
             return ResponseEntity.ok(Map.of(
                     "success", false,
                     "message", "Dispatch failed: " + e.getMessage()

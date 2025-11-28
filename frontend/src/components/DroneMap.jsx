@@ -46,7 +46,7 @@ const iconToDivIcon = (icon, size = 40, bg = "#ffffff", color = "#000000", inner
       align-items: center;
       justify-content: center;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      line-height: 0; /* remove baseline spacing */
+      line-height: 0;
       overflow: hidden;
     ">
       <div style="
@@ -126,12 +126,20 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
 
       const destinations = storedDestinations[drone.droneId];
       if (destinations) {
-        const markers = destinations.map((dest, idx) => ({
-          position: [dest[0], dest[1]],
-          index: idx,
-          total: destinations.length,
-          completed: idx < drone.currentDeliveryInBatch || drone.status === 'COMPLETED'
-        }));
+        const markers = destinations.map((dest, idx) => {
+          const isCompleted = 
+            idx < (drone.currentDeliveryInBatch || 0) || 
+            drone.status === 'COMPLETED' ||
+            drone.status === 'RETURNING';
+          
+          return {
+            position: [dest[0], dest[1]],
+            index: idx,
+            total: destinations.length,
+            completed: isCompleted,
+            droneId: drone.droneId
+          };
+        });
 
         setDeliveryMarkers(prev => ({
           ...prev,
@@ -144,6 +152,7 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
     Object.keys(flightPaths).forEach(id => {
       if (!activeIds.has(id)) {
         setCompletedPaths(prev => ({ ...prev, [id]: flightPaths[id] }));
+        
         setTimeout(() => {
           setCompletedPaths(prev => {
             const copy = { ...prev };
@@ -185,7 +194,7 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
         box-shadow: 0 2px 6px rgba(0,0,0,0.3);
         font-weight: bold;
         font-size: 14px;
-        line-height: 1; /* ensure text is vertically centered */
+        line-height: 1;
       ">
         ${droneId}
       </div>
@@ -198,8 +207,68 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
     });
   };
 
-  const createDeliveryIcon = (completed) =>
-    iconToDivIcon(<FiBox size={28} color="white" />, 44, completed ? "#1ec46b" : "#ffb700", "white", 60);
+  const createDeliveryIcon = (completed, orderNumber) => {
+    const size = 44;
+    const bgColor = completed ? "#1ec46b" : "#ffb700";
+    
+    const html = `
+      <div style="position: relative; width: ${size}px; height: ${size}px;">
+        <!-- Main delivery icon -->
+        <div style="
+          background: ${bgColor};
+          width: ${size}px;
+          height: ${size}px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        ">
+          <svg 
+            viewBox="0 0 24 24" 
+            width="28" 
+            height="28" 
+            stroke="white" 
+            stroke-width="2" 
+            fill="none" 
+            stroke-linecap="round" 
+            stroke-linejoin="round"
+          >
+            <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+        </div>
+
+        <div style="
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          background: #212121;
+          color: white;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          font-size: 11px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        ">
+          ${orderNumber}
+        </div>
+      </div>
+    `;
+    
+    return L.divIcon({
+      html,
+      className: "",
+      iconSize: [size, size],
+      iconAnchor: [Math.round(size / 2), Math.round(size / 2)]
+    });
+  };
 
   const createServicePointIcon = () =>
     iconToDivIcon(<MdMedicalServices size={34} />, 48, "#ffffff", "black", 62);
@@ -248,7 +317,7 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
             >
               <Popup>
                 <div style={{ textAlign: 'center' }}>
-                  <strong> {p.name}</strong><br />
+                  <strong>{p.name}</strong><br />
                   <small>Service Point #{p.id}</small><br />
                   <small>{p.location.lat.toFixed(4)}, {p.location.lng.toFixed(4)}</small>
                 </div>
@@ -259,9 +328,9 @@ const DroneMap = ({ drones, isPinMode = false, onMapClick }) => {
 
         {Object.values(deliveryMarkers).flat().map((m, i) => (
           <Marker
-            key={i}
+            key={`delivery-${m.droneId}-${m.index}`}
             position={m.position}
-            icon={createDeliveryIcon(m.completed)}
+            icon={createDeliveryIcon(m.completed, m.index + 1)}
             zIndexOffset={5000}
           >
             <Popup>
